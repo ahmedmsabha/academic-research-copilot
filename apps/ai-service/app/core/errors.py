@@ -68,6 +68,49 @@ class ProviderConfigError(AppError):
         super().__init__(code="PROVIDER_CONFIG_ERROR", message=message, status_code=503)
 
 
+class UnsupportedDocumentError(AppError):
+    def __init__(self, message: str = "Only PDF documents are supported.") -> None:
+        super().__init__(code="UNSUPPORTED_DOCUMENT", message=message, status_code=415)
+
+
+class DocumentTooLargeError(AppError):
+    def __init__(self, message: str = "The uploaded file exceeds the size limit.") -> None:
+        super().__init__(code="DOCUMENT_TOO_LARGE", message=message, status_code=413)
+
+
+class DocumentProcessingError(AppError):
+    def __init__(
+        self,
+        message: str = "Document processing failed. You can retry indexing.",
+    ) -> None:
+        super().__init__(code="DOCUMENT_PROCESSING_ERROR", message=message, status_code=422)
+
+
+class DocumentNotReadyError(AppError):
+    def __init__(
+        self,
+        message: str = (
+            "This document is still being indexed. Try again when processing is complete."
+        ),
+    ) -> None:
+        super().__init__(code="DOCUMENT_NOT_READY", message=message, status_code=409)
+
+
+class InsufficientEvidenceError(AppError):
+    def __init__(
+        self,
+        message: str = (
+            "The uploaded documents do not contain enough information to answer that question."
+        ),
+    ) -> None:
+        super().__init__(code="INSUFFICIENT_EVIDENCE", message=message, status_code=422)
+
+
+class ProjectDocumentLimitError(AppError):
+    def __init__(self, message: str = "This project has reached its document limit.") -> None:
+        super().__init__(code="DOCUMENT_LIMIT", message=message, status_code=409)
+
+
 def _request_id(request: Request) -> str:
     existing = request.headers.get("X-Request-Id")
     return existing or str(uuid4())

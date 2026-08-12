@@ -5,14 +5,35 @@ import { useEffect, useState } from "react";
 import { ChatComposer } from "@/features/chat/ChatComposer";
 import { MessageList } from "@/features/chat/MessageList";
 import { clearSessionIds, loadSessionIds, saveSessionIds } from "@/features/chat/session";
+import { DocumentPanel } from "@/features/documents/DocumentPanel";
 import { ApiError, api } from "@/lib/api";
-import type { Message } from "@/types/api";
+import type { Message, MessageRoutePreference } from "@/types/api";
 
-export function ChatPanel() {
+type ChatPanelProps = {
+  title: string;
+  subtitle: string;
+  eyebrow: string;
+  mode?: MessageRoutePreference;
+  showDocuments?: boolean;
+  conversationTitle?: string;
+  sessionKind?: "chat" | "rag";
+};
+
+export function ChatPanel({
+  title,
+  subtitle,
+  eyebrow,
+  mode = "auto",
+  showDocuments = false,
+  conversationTitle = "Research chat",
+  sessionKind = "chat",
+}: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [sending, setSending] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,25 +43,25 @@ export function ChatPanel() {
       setBootstrapping(true);
       setError(null);
       try {
-        const saved = loadSessionIds();
-        let projectId = saved.projectId;
+        const saved = loadSessionIds(sessionKind);
+        let nextProjectId = saved.projectId;
         let nextConversationId = saved.conversationId;
 
-        if (!projectId) {
+        if (!nextProjectId) {
           const project = await api.createProject();
-          projectId = project.id;
+          nextProjectId = project.id;
         } else {
           const projects = await api.listProjects();
-          const found = projects.some((project) => project.id === projectId);
+          const found = projects.some((project) => project.id === nextProjectId);
           if (!found) {
             const project = await api.createProject();
-            projectId = project.id;
+            nextProjectId = project.id;
             nextConversationId = null;
           }
         }
 
         if (!nextConversationId) {
-          const conversation = await api.createConversation(projectId, "Research chat");
+          const conversation = await api.createConversation(nextProjectId, conversationTitle);
           nextConversationId = conversation.id;
         }
 
@@ -49,7 +70,7 @@ export function ChatPanel() {
           history = await api.listMessages(nextConversationId);
         } catch (err) {
           if (err instanceof ApiError && err.status === 404) {
-            const conversation = await api.createConversation(projectId, "Research chat");
+            const conversation = await api.createConversation(nextProjectId, conversationTitle);
             nextConversationId = conversation.id;
             history = [];
           } else {
@@ -61,14 +82,15 @@ export function ChatPanel() {
           return;
         }
 
-        saveSessionIds(projectId, nextConversationId);
+        saveSessionIds(nextProjectId, nextConversationId, sessionKind);
+        setProjectId(nextProjectId);
         setConversationId(nextConversationId);
         setMessages(history);
       } catch (err) {
         if (cancelled) {
           return;
         }
-        clearSessionIds();
+        clearSessionIds(sessionKind);
         const message =
           err instanceof ApiError
             ? err.message
@@ -85,7 +107,7 @@ export function ChatPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [conversationTitle, sessionKind]);
 
   async function handleSend(content: string) {
     if (!conversationId) {
@@ -94,6 +116,7 @@ export function ChatPanel() {
     }
 
     setSending(true);
+    setLoadingStatus(mode === "rag" ? "Searching uploaded documents…" : "Generating response…");
     setError(null);
 
     const optimistic: Message = {
@@ -106,7 +129,8 @@ export function ChatPanel() {
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      const result = await api.sendMessage(conversationId, content);
+      const result = await api.sendMessage(conversationId, content, mode);
+      setLoadingStatus(result.status);
       setMessages((prev) => {
         const withoutOptimistic = prev.filter((message) => message.id !== optimistic.id);
         return [...withoutOptimistic, result.user_message, result.assistant_message];
@@ -118,17 +142,16 @@ export function ChatPanel() {
       setError(message);
     } finally {
       setSending(false);
+      setLoadingStatus(null);
     }
   }
 
-  return (
-    <section className="mx-auto flex h-[min(820px,calc(100vh-7rem))] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-line bg-white/70 shadow-[0_20px_60px_rgba(28,36,48,0.08)] backdrop-blur">
+  const chatSection = (
+    <section className="flex h-[min(820px,calc(100vh-7rem))] flex-col overflow-hidden rounded-3xl border border-line bg-white/70 shadow-[0_20px_60px_rgba(28,36,48,0.08)] backdrop-blur">
       <header className="border-b border-line px-5 py-4 sm:px-6">
-        <p className="text-xs uppercase tracking-[0.18em] text-ink-muted">Task 1 · Chat</p>
-        <h1 className="font-display text-2xl text-ink sm:text-3xl">Academic Research Copilot</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Gemini-powered conversation with session history, loading states, and safe errors.
-        </p>
+        <p className="text-xs uppercase tracking-[0.18em] text-ink-muted">{eyebrow}</p>
+        <h1 className="font-display text-2xl text-ink sm:text-3xl">{title}</h1>
+        <p className="mt-1 text-sm text-ink-muted">{subtitle}</p>
       </header>
 
       {error ? (
@@ -145,10 +168,33 @@ export function ChatPanel() {
           Preparing your workspace…
         </div>
       ) : (
-        <MessageList messages={messages} isLoading={sending} />
+        <MessageList
+          messages={messages}
+          isLoading={sending}
+          loadingStatus={loadingStatus}
+          emptyTitle={mode === "rag" ? "Ask about your documents" : "Ask a research question"}
+          emptyDescription={
+            mode === "rag"
+              ? "Upload a PDF, then ask about it. Answers use retrieved document context and show filename and page citations when evidence is found."
+              : "Start a conversation. Messages are saved to your project database and reload after refresh."
+          }
+        />
       )}
 
       <ChatComposer disabled={bootstrapping || sending || !conversationId} onSend={handleSend} />
     </section>
+  );
+
+  if (!showDocuments) {
+    return <div className="mx-auto w-full max-w-4xl">{chatSection}</div>;
+  }
+
+  return (
+    <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      {chatSection}
+      <div className="lg:h-[min(820px,calc(100vh-7rem))]">
+        <DocumentPanel projectId={projectId} />
+      </div>
+    </div>
   );
 }

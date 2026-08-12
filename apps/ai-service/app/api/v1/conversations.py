@@ -36,4 +36,5 @@ async def send_message(
         owner_user_id=user_id,
         conversation_id=conversation_id,
         content=body.content,
+        mode=body.mode,
     )

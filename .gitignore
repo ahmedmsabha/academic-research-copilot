@@ -35,6 +35,8 @@ next-env.d.ts
 
 # Local data / uploads (Task 2+)
 data/
+.data/
+apps/ai-service/tests/.tmp-uploads/
 *.sqlite
 *.db
 

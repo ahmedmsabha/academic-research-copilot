@@ -1,6 +1,8 @@
 import type {
   Conversation,
+  Document,
   Message,
+  MessageRoutePreference,
   Project,
   SendMessageResponse,
 } from "@/types/api";
@@ -50,31 +52,46 @@ function getUserId(): string {
   return created;
 }
 
+async function parseError(response: Response): Promise<ApiError> {
+  let code = "HTTP_ERROR";
+  let message = "Something went wrong. Please try again.";
+  let requestId: string | undefined;
+  try {
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string; request_id?: string };
+    };
+    code = body.error?.code ?? code;
+    message = body.error?.message ?? message;
+    requestId = body.error?.request_id;
+  } catch {
+    // Keep safe defaults when the body is not JSON.
+  }
+  return new ApiError({ message, code, status: response.status, requestId });
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getBaseUrl()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-User-Id": getUserId(),
-      ...(init?.headers ?? {}),
-    },
-  });
+  const headers = new Headers(init?.headers);
+  headers.set("X-User-Id", getUserId());
+  if (!headers.has("Content-Type") && !(init?.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${getBaseUrl()}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch {
+    throw new ApiError({
+      message: "Unable to reach the AI service. Is it running on the configured API URL?",
+      code: "NETWORK_ERROR",
+      status: 0,
+    });
+  }
 
   if (!response.ok) {
-    let code = "HTTP_ERROR";
-    let message = "Something went wrong. Please try again.";
-    let requestId: string | undefined;
-    try {
-      const body = (await response.json()) as {
-        error?: { code?: string; message?: string; request_id?: string };
-      };
-      code = body.error?.code ?? code;
-      message = body.error?.message ?? message;
-      requestId = body.error?.request_id;
-    } catch {
-      // Keep safe defaults when the body is not JSON.
-    }
-    throw new ApiError({ message, code, status: response.status, requestId });
+    throw await parseError(response);
   }
 
   if (response.status === 204) {
@@ -106,13 +123,43 @@ export const api = {
     return apiFetch<Message[]>(`/api/v1/conversations/${conversationId}/messages`);
   },
 
-  sendMessage(conversationId: string, content: string): Promise<SendMessageResponse> {
+  sendMessage(
+    conversationId: string,
+    content: string,
+    mode: MessageRoutePreference = "auto",
+  ): Promise<SendMessageResponse> {
     return apiFetch<SendMessageResponse>(
       `/api/v1/conversations/${conversationId}/messages`,
       {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, mode }),
       },
     );
+  },
+
+  listDocuments(projectId: string): Promise<Document[]> {
+    return apiFetch<Document[]>(`/api/v1/projects/${projectId}/documents`);
+  },
+
+  uploadDocument(projectId: string, file: File): Promise<Document> {
+    const body = new FormData();
+    body.append("file", file);
+    return apiFetch<Document>(`/api/v1/projects/${projectId}/documents`, {
+      method: "POST",
+      body,
+    });
+  },
+
+  retryDocument(projectId: string, documentId: string): Promise<Document> {
+    return apiFetch<Document>(
+      `/api/v1/projects/${projectId}/documents/${documentId}/retry`,
+      { method: "POST" },
+    );
+  },
+
+  deleteDocument(projectId: string, documentId: string): Promise<void> {
+    return apiFetch<void>(`/api/v1/projects/${projectId}/documents/${documentId}`, {
+      method: "DELETE",
+    });
   },
 };

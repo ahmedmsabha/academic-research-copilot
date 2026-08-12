@@ -9,10 +9,17 @@ from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.providers.embeddings import (
+    EmbeddingProvider,
+    FakeEmbeddingProvider,
+    GeminiEmbeddingProvider,
+)
 from app.providers.llm import FakeLLMProvider, GeminiLLMProvider, LLMProvider
+from app.providers.storage import LocalObjectStorage, ObjectStorage
 from app.repositories.memory_store import MemoryStore, get_store
 from app.repositories.postgres_store import PostgresStore
 from app.services.chat import ChatService
+from app.services.documents import DocumentService
 from app.services.projects import ProjectService
 
 Store = MemoryStore | PostgresStore
@@ -60,6 +67,27 @@ def _build_default_llm() -> LLMProvider:
     )
 
 
+@lru_cache
+def _build_default_embeddings() -> EmbeddingProvider:
+    settings = get_settings()
+    if settings.app_env == "test" or settings.dev_fake_embeddings:
+        return FakeEmbeddingProvider(dimension=settings.embedding_dimension)
+    return GeminiEmbeddingProvider(
+        api_key=settings.resolved_llm_api_key,
+        model=settings.embedding_model,
+        dimension=settings.embedding_dimension,
+        timeout_ms=settings.embedding_timeout_ms,
+        batch_size=settings.embedding_batch_size,
+        batch_pause_ms=settings.embedding_batch_pause_ms,
+    )
+
+
+@lru_cache
+def _build_default_storage() -> ObjectStorage:
+    settings = get_settings()
+    return LocalObjectStorage(settings.storage_root_path)
+
+
 def get_llm_provider(request: Request) -> LLMProvider:
     override = getattr(request.app.state, "llm_provider", None)
     if override is not None:
@@ -67,13 +95,57 @@ def get_llm_provider(request: Request) -> LLMProvider:
     return _build_default_llm()
 
 
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    override = getattr(request.app.state, "embedding_provider", None)
+    if override is not None:
+        return override  # type: ignore[no-any-return]
+    return _build_default_embeddings()
+
+
+def get_object_storage(request: Request) -> ObjectStorage:
+    override = getattr(request.app.state, "object_storage", None)
+    if override is not None:
+        return override  # type: ignore[no-any-return]
+    return _build_default_storage()
+
+
 def get_project_service(store: Store = Depends(get_app_store)) -> ProjectService:
     return ProjectService(store)  # type: ignore[arg-type]
 
 
 def get_chat_service(
+    request: Request,
     store: Store = Depends(get_app_store),
     llm: LLMProvider = Depends(get_llm_provider),
     settings: Settings = Depends(get_settings),
 ) -> ChatService:
-    return ChatService(store=store, llm=llm, settings=settings)  # type: ignore[arg-type]
+    # Do not resolve embeddings during dependency injection for every chat request.
+    # Task 1 (llm) must keep working even if embedding setup is mid-change or broken.
+    override = getattr(request.app.state, "embedding_provider", None)
+
+    def embeddings_factory() -> EmbeddingProvider:
+        if override is not None:
+            return override  # type: ignore[no-any-return]
+        return _build_default_embeddings()
+
+    return ChatService(
+        store=store,
+        llm=llm,
+        settings=settings,
+        embeddings=override if override is not None else None,
+        embeddings_factory=None if override is not None else embeddings_factory,
+    )
+
+
+def get_document_service(
+    store: Store = Depends(get_app_store),
+    storage: ObjectStorage = Depends(get_object_storage),
+    embeddings: EmbeddingProvider = Depends(get_embedding_provider),
+    settings: Settings = Depends(get_settings),
+) -> DocumentService:
+    return DocumentService(
+        store=store,
+        storage=storage,
+        embeddings=embeddings,
+        settings=settings,
+    )

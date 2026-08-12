@@ -2,11 +2,12 @@
 
 FastAPI backend for Academic Research Copilot.
 
-## Task 1
+## Task 2 (includes Task 1)
 
-- Gemini LLM provider (`google-genai`)
-- Project / conversation / message APIs
-- Postgres persistence via SQLAlchemy against Prisma-managed tables
+- Gemini LLM + `gemini-embedding-001` embeddings
+- PDF upload, PyMuPDF extraction, chunking, pgvector storage
+- Project-scoped RAG chat with citation metadata
+- Local filesystem object storage (`STORAGE_LOCAL_ROOT`)
 - Dev auth via `X-User-Id`
 
 ## Run
@@ -16,9 +17,11 @@ cd apps/ai-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-cp ../../.env.example ../../.env   # set GEMINI_API_KEY
+# Root .env: GEMINI_API_KEY, DATABASE_URL, EMBEDDING_MODEL=gemini-embedding-001
 uvicorn app.main:app --reload --port 8000
 ```
+
+Apply the Prisma migration from `apps/web` first (`npx prisma migrate deploy`).
 
 ## Test
 

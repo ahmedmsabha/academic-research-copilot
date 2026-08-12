@@ -133,11 +133,33 @@ def _map_provider_exception(
     name = type(exc).__name__.lower()
     message = str(exc).lower()
 
-    if "timeout" in name or "timeout" in message or "timed out" in message:
+    if "timeout" in name or "timed out" in message or "deadline" in message:
         return ProviderTimeoutError()
-    if "api key" in message or "authentication" in message or "permission" in message:
+    if (
+        "api key" in message
+        or "authentication" in message
+        or "permission" in message
+        or "unauthenticated" in message
+    ):
         return ProviderConfigError("The AI provider rejected the API credentials.")
-    if "429" in message or "rate" in message or "quota" in message:
+    if (
+        "404" in message
+        or "not_found" in message
+        or "no longer available" in message
+        or "is not found" in message
+    ):
+        return ProviderConfigError(
+            "The configured LLM model is unavailable. Update LLM_MODEL in your .env "
+            "(for example gemini-flash-lite-latest) and restart the AI service."
+        )
+    if (
+        "429" in message
+        or "rate limit" in message
+        or "rate_limit" in message
+        or "resource_exhausted" in message
+        or "quota exceeded" in message
+        or "exceeded your current quota" in message
+    ):
         return ProviderUnavailableError(
             "The AI provider rate limit was reached. Please try again shortly."
         )

@@ -25,11 +25,12 @@ model Post {
 }
 
 model Project {
-  id          String         @id @default(uuid())
-  name        String
-  ownerUserId String         @map("owner_user_id")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  id            String         @id @default(uuid())
+  name          String
+  ownerUserId   String         @map("owner_user_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
   conversations Conversation[]
+  documents     Document[]
 
   @@index([ownerUserId])
   @@map("projects")
@@ -58,9 +59,55 @@ model Message {
   status         String?
   provider       String?
   model          String?
+  citationsJson  String?      @map("citations_json")
   createdAt      DateTime     @default(now()) @map("created_at")
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model Document {
+  id             String          @id @default(uuid())
+  projectId      String          @map("project_id")
+  ownerUserId    String          @map("owner_user_id")
+  filename       String
+  contentType    String          @map("content_type")
+  sizeBytes      Int             @map("size_bytes")
+  checksum       String?
+  storageKey     String          @map("storage_key")
+  pageCount      Int?            @map("page_count")
+  status         String          @default("uploaded")
+  failureCode    String?         @map("failure_code")
+  failureMessage String?         @map("failure_message")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chunks         DocumentChunk[]
+
+  @@index([projectId, status])
+  @@index([ownerUserId])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id                 String                       @id @default(uuid())
+  projectId          String                       @map("project_id")
+  documentId         String                       @map("document_id")
+  ordinal            Int
+  content            String
+  pageStart          Int?                         @map("page_start")
+  pageEnd            Int?                         @map("page_end")
+  charStart          Int?                         @map("char_start")
+  charEnd            Int?                         @map("char_end")
+  embeddingModel     String                       @map("embedding_model")
+  embeddingDimension Int                          @map("embedding_dimension")
+  // pgvector column; queried via SQLAlchemy / raw SQL, not Prisma Client.
+  embedding          Unsupported("vector(768)")?
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  document           Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, ordinal])
+  @@index([projectId, documentId])
+  @@map("document_chunks")
 }
