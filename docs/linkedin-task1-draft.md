@@ -26,7 +26,7 @@ Built my first AI chatbot for **Academic Research Copilot** 🎓
 - Fake LLM providers make tests deterministic and free
 - Durable storage early (Postgres) avoids rewriting chat persistence later
 
-GitHub: _add repo URL after push_
+GitHub: https://github.com/ahmedmsabha/academic-research-copilot
 Screenshots: see `docs/screenshots/`
 
 #AI #FastAPI #NextJS #Gemini #BuildInPublic #StudentDeveloper
@@ -34,3 +34,14 @@ Screenshots: see `docs/screenshots/`
 ---
 
 After publishing, paste the post URL here for your portfolio tracker.
+
+## Show checklist
+
+- [x] App runs locally (web :3000, AI :8000)
+- [x] Screenshots in `docs/screenshots/`
+- [x] Demo script in `docs/demo-script.md`
+- [x] README updated
+- [x] Initial git commit on `main`
+- [x] Pushed to GitHub: https://github.com/ahmedmsabha/academic-research-copilot
+- [ ] Record 2–3 min demo video
+- [ ] Publish LinkedIn post (use draft above)
