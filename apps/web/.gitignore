@@ -1,0 +1,18 @@
+# dependencies
+node_modules
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# next
+.next
+out
+
+# prisma generated client
+/generated/prisma
+
+# misc
+*.tsbuildinfo
+next-env.d.ts

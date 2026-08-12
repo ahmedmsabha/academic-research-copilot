@@ -1,0 +1,4 @@
+# Local stack scaffold — services will be filled in as apps are implemented.
+# Expected: web (Next.js), ai-service (FastAPI), postgres (pgvector), optional storage emulator.
+
+services: {}

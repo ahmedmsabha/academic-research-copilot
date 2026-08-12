@@ -1,0 +1,114 @@
+"""Integration tests for Task 1 chat APIs (fake LLM, no live Gemini)."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.providers.llm import FakeLLMProvider
+
+
+def _bootstrap_conversation(client: TestClient, headers: dict[str, str]) -> str:
+    project = client.post("/api/v1/projects", json={"name": "My Research Project"}, headers=headers)
+    assert project.status_code == 201
+    project_id = project.json()["id"]
+
+    conversation = client.post(
+        f"/api/v1/projects/{project_id}/conversations",
+        json={"title": "Demo chat"},
+        headers=headers,
+    )
+    assert conversation.status_code == 201
+    return conversation.json()["id"]
+
+
+def test_health(client: TestClient) -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_requires_user_header(client: TestClient) -> None:
+    response = client.post("/api/v1/projects", json={"name": "My Research Project"})
+    assert response.status_code == 401
+    body = response.json()
+    assert body["error"]["code"] == "UNAUTHORIZED"
+    assert "stack" not in body["error"]["message"].lower()
+
+
+def test_send_message_and_list_history(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    fake_llm: FakeLLMProvider,
+) -> None:
+    conversation_id = _bootstrap_conversation(client, auth_headers)
+
+    send = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "Explain embeddings briefly."},
+        headers=auth_headers,
+    )
+    assert send.status_code == 201
+    payload = send.json()
+    assert payload["route"] == "llm"
+    assert payload["status"] == "Generating response"
+    assert payload["assistant_message"]["content"] == "Hello from the fake model."
+    assert payload["assistant_message"]["provider"] == "fake"
+    assert len(fake_llm.calls) == 1
+
+    history = client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+    )
+    assert history.status_code == 200
+    messages = history.json()
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+
+
+def test_blank_message_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
+    conversation_id = _bootstrap_conversation(client, auth_headers)
+    response = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "   "},
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert "message" in body["error"]
+
+
+def test_project_isolation(client: TestClient) -> None:
+    user_a = {"X-User-Id": "alice"}
+    user_b = {"X-User-Id": "bob"}
+
+    conversation_id = _bootstrap_conversation(client, user_a)
+    forbidden = client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=user_b,
+    )
+    assert forbidden.status_code == 404
+
+
+def test_provider_failure_is_user_safe(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    class BoomLLM(FakeLLMProvider):
+        async def generate(self, request):  # type: ignore[no-untyped-def]
+            from app.core.errors import ProviderUnavailableError
+
+            raise ProviderUnavailableError()
+
+    client.app.state.llm_provider = BoomLLM()
+    conversation_id = _bootstrap_conversation(client, auth_headers)
+    response = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "Hello"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 503
+    body = response.json()
+    assert body["error"]["code"] == "PROVIDER_UNAVAILABLE"
+    assert "Traceback" not in body["error"]["message"]
