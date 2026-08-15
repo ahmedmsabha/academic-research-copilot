@@ -85,7 +85,7 @@ Second **Application**, same GitHub repo.
 | Build type | **Dockerfile** |
 | Build path | `apps/web` |
 | Dockerfile | `Dockerfile` |
-| Port | `3000` |
+| Port | `3000` (the domain must also use port 3000) |
 
 Build argument (required — Next.js inlines this at build time):
 
