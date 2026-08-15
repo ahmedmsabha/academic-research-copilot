@@ -9,6 +9,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_BUILD=1
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+# prisma.config.ts reads DATABASE_URL at generate time; this build does not connect.
+ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build
 RUN npm run build
 
 FROM node:22-alpine AS runner
