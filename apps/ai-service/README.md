@@ -4,7 +4,7 @@ emoji: 📚
 colorFrom: green
 colorTo: gray
 sdk: gradio
-app_file: app.py
+app_file: space_app.py
 pinned: false
 short_description: FastAPI research assistant API (chat, RAG, tools, Prompt Lab)
 ---

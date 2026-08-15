@@ -1,7 +1,7 @@
-"""Hugging Face Gradio Space entry (free SDK — Docker Spaces are paid).
+"""Optional Hugging Face Gradio Space entry (not used on Vercel).
 
-The Space serves the existing FastAPI app. Gradio only provides the free
-runtime and a small status page. The Vercel UI keeps calling /api/v1.
+Vercel must see FastAPI only in app/main.py. Keep this file off the
+supported Vercel entrypoint names (app.py, main.py, index.py).
 """
 
 from __future__ import annotations
@@ -24,12 +24,10 @@ with gr.Blocks(title="Academic Research Copilot API") as demo:
         """
     )
 
-# Keep /health and /api/v1 on FastAPI; Gradio UI is also at /.
 app = gr.mount_gradio_app(fastapi_app, demo, path="/")
 
 
 def _launch(*args: object, **kwargs: object) -> None:
-    """HF Gradio Spaces call demo.launch(); run uvicorn so API routes stay live."""
     _ = args
     host = str(kwargs.get("server_name") or os.environ.get("HOST") or "0.0.0.0")
     port = int(kwargs.get("server_port") or os.environ.get("PORT") or 7860)

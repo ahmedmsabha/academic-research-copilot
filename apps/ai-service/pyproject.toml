@@ -49,3 +49,7 @@ select = ["E", "F", "I", "UP"]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+
+[tool.vercel]
+entrypoint = "app.main:app"
+
