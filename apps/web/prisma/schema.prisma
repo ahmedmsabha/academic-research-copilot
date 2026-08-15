@@ -29,8 +29,9 @@ model Project {
   name          String
   ownerUserId   String         @map("owner_user_id")
   createdAt     DateTime       @default(now()) @map("created_at")
-  conversations Conversation[]
-  documents     Document[]
+  conversations     Conversation[]
+  documents         Document[]
+  promptExperiments PromptExperiment[]
 
   @@index([ownerUserId])
   @@map("projects")
@@ -110,4 +111,32 @@ model DocumentChunk {
   @@unique([documentId, ordinal])
   @@index([projectId, documentId])
   @@map("document_chunks")
+}
+
+model PromptExperiment {
+  id                       String   @id @default(uuid())
+  runId                    String   @map("run_id")
+  projectId                String   @map("project_id")
+  ownerUserId              String   @map("owner_user_id")
+  userInput                String   @map("user_input")
+  strategy                 String
+  templateVersion          String   @map("template_version")
+  model                    String
+  provider                 String
+  generatedOutput          String   @map("generated_output")
+  elapsedMs                Int      @map("elapsed_ms")
+  promptTokens             Int?     @map("prompt_tokens")
+  completionTokens         Int?     @map("completion_tokens")
+  totalTokens              Int?     @map("total_tokens")
+  ratingAccuracy           Int?     @map("rating_accuracy")
+  ratingClarity            Int?     @map("rating_clarity")
+  ratingResearchUsefulness Int?     @map("rating_research_usefulness")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([ownerUserId])
+  @@index([runId])
+  @@map("prompt_experiments")
 }

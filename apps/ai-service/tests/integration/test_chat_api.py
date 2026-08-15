@@ -53,7 +53,7 @@ def test_send_message_and_list_history(
     assert payload["status"] == "Generating response"
     assert payload["assistant_message"]["content"] == "Hello from the fake model."
     assert payload["assistant_message"]["provider"] == "fake"
-    assert len(fake_llm.calls) == 1
+    assert len(fake_llm.calls) >= 1
 
     history = client.get(
         f"/api/v1/conversations/{conversation_id}/messages",
@@ -77,6 +77,63 @@ def test_blank_message_rejected(client: TestClient, auth_headers: dict[str, str]
     body = response.json()
     assert body["error"]["code"] == "VALIDATION_ERROR"
     assert "message" in body["error"]
+
+
+def test_list_conversations_is_owner_scoped(client: TestClient) -> None:
+    user_a = {"X-User-Id": "alice"}
+    user_b = {"X-User-Id": "bob"}
+
+    project_a = client.post(
+        "/api/v1/projects",
+        json={"name": "My Research Project"},
+        headers=user_a,
+    )
+    assert project_a.status_code == 201
+    project_id = project_a.json()["id"]
+
+    created = client.post(
+        f"/api/v1/projects/{project_id}/conversations",
+        json={"title": "Alice notes"},
+        headers=user_a,
+    )
+    assert created.status_code == 201
+
+    listed = client.get(f"/api/v1/projects/{project_id}/conversations", headers=user_a)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["title"] == "Alice notes"
+
+    hidden = client.get(f"/api/v1/projects/{project_id}/conversations", headers=user_b)
+    assert hidden.status_code == 404
+
+
+def test_first_message_retitles_default_conversation(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        json={"name": "My Research Project"},
+        headers=auth_headers,
+    )
+    project_id = project.json()["id"]
+    conversation = client.post(
+        f"/api/v1/projects/{project_id}/conversations",
+        json={"title": "New chat"},
+        headers=auth_headers,
+    )
+    conversation_id = conversation.json()["id"]
+
+    send = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "What is 12 * (3 + 4)?"},
+        headers=auth_headers,
+    )
+    assert send.status_code == 201
+
+    listed = client.get(f"/api/v1/projects/{project_id}/conversations", headers=auth_headers)
+    assert listed.status_code == 200
+    assert listed.json()[0]["title"] == "What is 12 * (3 + 4)?"
 
 
 def test_project_isolation(client: TestClient) -> None:

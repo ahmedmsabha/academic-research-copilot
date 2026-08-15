@@ -1,12 +1,12 @@
-# API (Task 2)
+# API (Task 5)
 
 Base URL: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`)
 
-Auth (dev): send `X-User-Id: <stable-dev-id>` on every project/conversation/document request.
+Auth (dev): send `X-User-Id: <stable-dev-id>` on every project/conversation/document/prompt-lab request.
 
 ## Health
 
-`GET /health` → `{ "status": "ok" }`
+`GET /health` → `{ "status": "ok", "service": "ai-service" }`
 
 ## Projects
 
@@ -14,7 +14,11 @@ Auth (dev): send `X-User-Id: <stable-dev-id>` on every project/conversation/docu
 `POST /api/v1/projects` body `{ "name": "My Research Project" }`  
 Returns the caller's default project when the default name is used and one already exists.
 
+`GET /api/v1/projects/{project_id}/conversations` → owner-scoped list, newest first  
+
 `POST /api/v1/projects/{project_id}/conversations` body `{ "title": "New chat" }`
+
+The first user message retitles a default conversation (`New chat`, `Research chat`, and similar) from the question text.
 
 ## Documents
 
@@ -49,38 +53,92 @@ Upload limits (configurable):
 
 `GET /api/v1/conversations/{conversation_id}/messages`
 
-`POST /api/v1/conversations/{conversation_id}/messages` body `{ "content": "..." }`
-
-When the conversation's project has ready documents, the service uses route `rag` and may attach citations. Otherwise it uses route `llm`.
-
-Success response:
+`POST /api/v1/conversations/{conversation_id}/messages`
 
 ```json
 {
-  "user_message": { "...": "..." },
-  "assistant_message": {
-    "role": "assistant",
-    "content": "...",
-    "route": "rag",
-    "status": "Searching uploaded documents",
-    "citations": [
-      {
-        "document_id": "...",
-        "chunk_id": "...",
-        "filename": "notes.pdf",
-        "page_start": 1,
-        "page_end": 1,
-        "label": "notes.pdf, p. 1"
-      }
-    ]
-  },
-  "route": "rag",
-  "status": "Searching uploaded documents",
-  "citations": []
+  "content": "What is 12 * (3 + 4)?",
+  "mode": "auto"
 }
 ```
 
-If retrieval finds no strong evidence, the assistant content states that the uploaded documents do not contain enough information, `route` remains `rag`, and `citations` is empty.
+`mode` (optional, default `auto`):
+
+| Value | Behavior |
+|---|---|
+| `auto` | Agent router selects calculator, weather, web search, rag, or llm |
+| `llm` | Direct Gemini chat (Task 1 `/chat`) |
+| `rag` | Grounded document answers only (Task 2 `/rag`) |
+| `calculator` / `weather` / `web_search` | Force that tool |
+
+Routes and user-visible `status` values:
+
+| `route` | `status` |
+|---|---|
+| `calculator` | Using calculator |
+| `weather` | Checking weather |
+| `web_search` | Searching the web |
+| `rag` | Searching uploaded documents |
+| `llm` | Generating response |
+
+Web-search replies include `web_sources` (title, URL, snippet, provider). Those are **not** document citations. RAG replies include `citations` with filename and page; those are **not** web sources.
+
+When the conversation's project has ready documents and the router selects `rag`, citations may be attached. If retrieval finds no strong evidence, the assistant states that the uploaded documents do not contain enough information, `route` remains `rag`, and `citations` is empty.
+
+## Prompt Lab
+
+`GET /api/v1/prompt-library` → versioned templates and “when it performs better” copy.
+
+`POST /api/v1/projects/{project_id}/prompt-experiments`
+
+```json
+{
+  "input": "Why do researchers use retrieval-augmented generation?",
+  "strategies": ["zero_shot", "one_shot", "few_shot", "chain_of_thought", "structured"]
+}
+```
+
+`strategies` is optional. The default is all five. Blank/whitespace input is rejected (`422`).
+
+Each strategy runs independently with the same model settings. `chain_of_thought` asks for numbered student-facing working (not hidden scratchpad). `structured` is parsed into answer / key points / confidence / limitations; invalid JSON becomes a safe parse-failure message — the raw model text is not returned.
+
+`GET /api/v1/projects/{project_id}/prompt-experiments` → `{ "runs": [ ... ] }` grouped by `run_id`, owner-scoped.
+
+`PATCH /api/v1/prompt-experiments/{experiment_id}`
+
+```json
+{
+  "rating_accuracy": 5,
+  "rating_clarity": 4,
+  "rating_research_usefulness": 5
+}
+```
+
+Ratings are 1–5. Omitted fields are left unchanged. Provide at least one rating.
+
+Example comparison result (synthetic):
+
+```json
+{
+  "run_id": "…",
+  "project_id": "…",
+  "input": "Why do researchers use retrieval-augmented generation?",
+  "results": [
+    {
+      "id": "…",
+      "strategy": "structured",
+      "template_version": "prompt-lab-v1",
+      "output": "RAG retrieves evidence before answering.\n\nKey points:\n- Uses documents\n- Reduces unsupported claims\n\nConfidence: high\nLimitations: Depends on retrieval quality.",
+      "elapsed_ms": 842,
+      "total_tokens": 180,
+      "cost_usd": null,
+      "rating_accuracy": null
+    }
+  ]
+}
+```
+
+`cost_usd` is always `null` until a documented pricing formula exists. Token fields are `null` when the provider does not return usage metadata.
 
 ## Errors
 
@@ -96,6 +154,8 @@ Problem-detail shape:
 }
 ```
 
-Common document/RAG codes: `UNSUPPORTED_DOCUMENT` (415), `DOCUMENT_TOO_LARGE` (413), `DOCUMENT_PROCESSING_ERROR` (422), `DOCUMENT_LIMIT` (409), `NOT_FOUND` (404), `PROVIDER_UNAVAILABLE` (503).
+Common document/RAG/tool codes: `UNSUPPORTED_DOCUMENT` (415), `DOCUMENT_TOO_LARGE` (413), `DOCUMENT_PROCESSING_ERROR` (422), `DOCUMENT_LIMIT` (409), `NOT_FOUND` (404), `PROVIDER_UNAVAILABLE` (503), `PROVIDER_TIMEOUT` (504), `TOOL_VALIDATION_ERROR` (400).
+
+Prompt Lab uses `VALIDATION_ERROR` (422) for blank input and `NOT_FOUND` (404) when the project or experiment is not in the caller's scope.
 
 Stack traces and secrets are never returned.

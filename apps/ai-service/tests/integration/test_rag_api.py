@@ -137,7 +137,9 @@ def test_overview_summary_uses_document_chunks(
     assert payload["citations"]
     assert payload["citations"][0]["filename"] == "notes.pdf"
     assert any(c.get("page_start") == 1 for c in payload["citations"])
-    assert "do not contain enough information" not in payload["assistant_message"]["content"].lower()
+    assert "do not contain enough information" not in (
+        payload["assistant_message"]["content"].lower()
+    )
     prompt = fake_llm.calls[-1].messages[0].content
     assert "Document excerpts:" in prompt
     assert "neural embeddings" in prompt.lower()

@@ -1,6 +1,7 @@
 "use client";
 
 import { MarkdownMessage } from "@/components/MarkdownMessage";
+import { isExternalRoute, shouldShowRouteStatus } from "@/features/chat/routeStatus";
 import type { Message } from "@/types/api";
 
 type MessageListProps = {
@@ -34,6 +35,7 @@ export function MessageList({
       {messages.map((message) => {
         const isUser = message.role === "user";
         const citations = message.citations ?? [];
+        const webSources = message.web_sources ?? [];
         return (
           <article
             key={message.id}
@@ -47,9 +49,10 @@ export function MessageList({
                   : "border border-line bg-[var(--assistant-bubble)] text-ink"
               }`}
             >
-              {!isUser && message.route === "rag" ? (
+              {!isUser && shouldShowRouteStatus(message.route) ? (
                 <p className="mb-2 text-xs uppercase tracking-[0.14em] text-ink-muted">
-                  {message.status ?? "Searching uploaded documents"}
+                  {message.status ?? "Working"}
+                  {isExternalRoute(message.route) ? " · External tool" : ""}
                 </p>
               ) : null}
               {isUser ? (
@@ -60,12 +63,33 @@ export function MessageList({
               {!isUser && citations.length > 0 ? (
                 <footer className="mt-3 border-t border-line pt-3">
                   <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                    Sources
+                    Document sources
                   </p>
                   <ul className="mt-2 space-y-1">
                     {citations.map((citation) => (
                       <li key={`${citation.chunk_id}-${citation.label}`} className="text-sm text-ink">
                         {citation.label}
+                      </li>
+                    ))}
+                  </ul>
+                </footer>
+              ) : null}
+              {!isUser && webSources.length > 0 ? (
+                <footer className="mt-3 border-t border-line pt-3">
+                  <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                    Web sources (external)
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {webSources.map((source) => (
+                      <li key={`${source.url}-${source.title}`} className="text-sm text-ink">
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-accent underline-offset-2 hover:underline"
+                        >
+                          {source.title}
+                        </a>
                       </li>
                     ))}
                   </ul>

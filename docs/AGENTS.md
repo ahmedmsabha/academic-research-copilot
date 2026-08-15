@@ -12,9 +12,13 @@ Keep architecture, API contracts, demo guidance, prompt comparison reports, and 
 docs/
 ├── architecture.md
 ├── architecture-diagram.png
+├── architecture-diagram.svg
 ├── api.md
+├── deploy.md
 ├── demo-script.md
+├── presentation.md
 ├── prompt-comparison-report.md
+├── prompt-library.md
 ├── screenshots/
 └── AGENTS.md
 ```

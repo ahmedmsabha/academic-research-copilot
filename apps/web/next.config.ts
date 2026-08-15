@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   // Keep tracing inside this app when parent directories contain other lockfiles.
   outputFileTracingRoot: path.join(__dirname),
 };

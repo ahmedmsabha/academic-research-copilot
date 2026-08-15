@@ -18,7 +18,7 @@ Own rendering, interaction, client-side state, browser-safe validation, and call
 
 ```text
 apps/web/
-├── app/           # App Router routes and layouts
+├── app/           # App Router routes (including /workspace)
 ├── components/    # Shared UI primitives
 ├── features/      # Feature-scoped UI, state, and API adapters
 ├── lib/           # Typed API client and client utilities
@@ -47,6 +47,7 @@ Keep feature logic close to the feature directory or route that owns it. Prefer 
 | Area | Responsibility |
 |---|---|
 | Chat | Composer, message list, history, loading/error, optional streaming render (Task 1 / Task 5) |
+| Workspace | Unified assistant at `/workspace`: history sidebar, auto routing, documents (Task 5) |
 | Projects & documents | Project selection, PDF upload UI, indexing status, delete confirmation (Task 2 / Task 5) |
 | Citations | Display filename and page/range from API metadata only (Task 2) |
 | Agent status | Show user-safe route status from API; never show private reasoning (Task 3) |
@@ -76,7 +77,7 @@ Keep feature logic close to the feature directory or route that owns it. Prefer 
 
 ## Prompt Lab UI Requirements
 
-- Compare zero-shot, one-shot, few-shot, and structured strategies for the same input.
+- Compare zero-shot, one-shot, few-shot, visible step-by-step (CoT), and structured strategies for the same input.
 - Show strategy, result, timing, and usage/cost only when the API provides them.
 - Never display hidden model reasoning as “structured reasoning”; show only the requested structured final answer.
 

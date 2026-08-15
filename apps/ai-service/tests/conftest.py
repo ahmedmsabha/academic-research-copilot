@@ -22,7 +22,9 @@ from app.core.config import get_settings  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.providers.embeddings import FakeEmbeddingProvider  # noqa: E402
 from app.providers.llm import FakeLLMProvider  # noqa: E402
+from app.providers.search import FakeWebSearchProvider  # noqa: E402
 from app.providers.storage import LocalObjectStorage  # noqa: E402
+from app.providers.weather import FakeWeatherProvider  # noqa: E402
 from app.repositories.memory_store import reset_store  # noqa: E402
 
 get_settings.cache_clear()
@@ -40,7 +42,23 @@ def fake_embeddings() -> FakeEmbeddingProvider:
 
 
 @pytest.fixture()
-def client(fake_llm: FakeLLMProvider, fake_embeddings: FakeEmbeddingProvider, tmp_path: Path):
+def fake_weather() -> FakeWeatherProvider:
+    return FakeWeatherProvider()
+
+
+@pytest.fixture()
+def fake_web_search() -> FakeWebSearchProvider:
+    return FakeWebSearchProvider()
+
+
+@pytest.fixture()
+def client(
+    fake_llm: FakeLLMProvider,
+    fake_embeddings: FakeEmbeddingProvider,
+    fake_weather: FakeWeatherProvider,
+    fake_web_search: FakeWebSearchProvider,
+    tmp_path: Path,
+):
     reset_store()
     get_settings.cache_clear()
     settings = get_settings()
@@ -49,6 +67,8 @@ def client(fake_llm: FakeLLMProvider, fake_embeddings: FakeEmbeddingProvider, tm
     app.state.llm_provider = fake_llm
     app.state.embedding_provider = fake_embeddings
     app.state.object_storage = LocalObjectStorage(storage_root)
+    app.state.weather_provider = fake_weather
+    app.state.web_search_provider = fake_web_search
     # Keep settings aligned with the temporary storage used by background helpers.
     object.__setattr__(settings, "storage_local_root", str(storage_root))
     with TestClient(app) as test_client:

@@ -61,6 +61,20 @@ class Settings(BaseSettings):
         alias="RETRIEVAL_RELAXED_MAX_DISTANCE",
     )
 
+    web_search_api_key: str | None = Field(default=None, alias="WEB_SEARCH_API_KEY")
+    web_search_timeout_ms: int = Field(default=12_000, alias="WEB_SEARCH_TIMEOUT_MS")
+    web_search_max_results: int = Field(default=5, alias="WEB_SEARCH_MAX_RESULTS")
+    # Grounding model for Gemini Google Search. Lite models often cannot call search tools.
+    web_search_gemini_model: str = Field(
+        default="gemini-flash-latest",
+        alias="WEB_SEARCH_GEMINI_MODEL",
+    )
+    weather_timeout_ms: int = Field(default=10_000, alias="WEATHER_TIMEOUT_MS")
+    calculator_max_expression_chars: int = Field(
+        default=200,
+        alias="CALCULATOR_MAX_EXPRESSION_CHARS",
+    )
+
     @property
     def resolved_llm_api_key(self) -> str | None:
         return self.gemini_api_key or self.llm_api_key
@@ -72,6 +86,23 @@ class Settings(BaseSettings):
     @property
     def storage_root_path(self) -> Path:
         return Path(self.storage_local_root).expanduser().resolve()
+
+    def validate_runtime(self) -> None:
+        """Fail fast with safe diagnostics. Never enable fake providers in production."""
+        if self.app_env == "test":
+            return
+        if self.app_env != "production":
+            return
+        if self.dev_fake_llm or self.dev_fake_embeddings:
+            raise RuntimeError(
+                "DEV_FAKE_LLM and DEV_FAKE_EMBEDDINGS cannot be enabled in production."
+            )
+        if not self.resolved_llm_api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY (or LLM_API_KEY) is required when APP_ENV=production."
+            )
+        if not self.database_url:
+            raise RuntimeError("DATABASE_URL is required when APP_ENV=production.")
 
 
 @lru_cache

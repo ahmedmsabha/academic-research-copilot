@@ -48,3 +48,7 @@ yarn-error.log*
 
 # Prisma
 apps/web/generated/prisma
+
+# Local agent/tool state
+.gemini/
+.jolli/

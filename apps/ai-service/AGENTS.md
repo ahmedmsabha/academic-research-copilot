@@ -28,6 +28,7 @@ apps/ai-service/
 │   ├── providers/     # LLM, embeddings, storage adapters
 │   ├── rag/           # extraction, chunking, retrieval, citations
 │   ├── agent/         # routing and tool orchestration
+│   ├── prompts/       # versioned Prompt Lab templates
 │   ├── tools/         # calculator, weather, web-search
 │   ├── workers/       # async indexing jobs (if used)
 │   └── main.py
@@ -66,9 +67,10 @@ API router → service/use case → repository / provider / tool
 
 | Module | Owns |
 |---|---|
-| `api/` | `/api/v1` routers for projects, documents, conversations/messages, prompt experiments, health |
+| `api/` | `/api/v1` routers for projects, documents, conversations/messages (including list), prompt experiments, health |
 | `rag/` | PDF extract (page-aware), chunking, embeddings orchestration hooks, retrieval, citation formatting |
 | `agent/` | Constrained route selection among `rag`, `calculator`, `web_search`, `weather`, `llm` |
+| `prompts/` | Versioned Prompt Lab templates (`zero_shot`, `one_shot`, `few_shot`, `chain_of_thought`, `structured`) |
 | `tools/` | Safe calculator (no `eval`), weather, web search with timeouts and typed I/O |
 | `providers/` | LLM, embedding, storage, search, weather SDK adapters |
 | `services/` | Use cases: chat, upload/index, delete/cleanup, prompt experiments |
@@ -119,7 +121,9 @@ Supported routes and user-visible status:
 
 ## Prompt Lab Rules
 
-Strategies: `zero_shot`, `one_shot`, `few_shot`, `structured`.
+Strategies: `zero_shot`, `one_shot`, `few_shot`, `chain_of_thought`, `structured`.
+
+`chain_of_thought` is student-facing numbered working in the answer — not hidden scratchpad. `structured` returns only parsed fields.
 
 - Treat prompt templates as versioned application assets.
 - Persist strategy, template version, model/provider, params, elapsed time, usage/cost when available, output, and ratings.

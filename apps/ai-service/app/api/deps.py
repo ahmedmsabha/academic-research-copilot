@@ -15,12 +15,23 @@ from app.providers.embeddings import (
     GeminiEmbeddingProvider,
 )
 from app.providers.llm import FakeLLMProvider, GeminiLLMProvider, LLMProvider
+from app.providers.search import (
+    DuckDuckGoHtmlSearchProvider,
+    DuckDuckGoSearchProvider,
+    FakeWebSearchProvider,
+    FallbackWebSearchProvider,
+    GeminiSearchProvider,
+    TavilySearchProvider,
+    WebSearchProvider,
+)
 from app.providers.storage import LocalObjectStorage, ObjectStorage
+from app.providers.weather import FakeWeatherProvider, OpenMeteoWeatherProvider, WeatherProvider
 from app.repositories.memory_store import MemoryStore, get_store
 from app.repositories.postgres_store import PostgresStore
 from app.services.chat import ChatService
 from app.services.documents import DocumentService
 from app.services.projects import ProjectService
+from app.services.prompt_lab import PromptLabService
 
 Store = MemoryStore | PostgresStore
 
@@ -88,6 +99,42 @@ def _build_default_storage() -> ObjectStorage:
     return LocalObjectStorage(settings.storage_root_path)
 
 
+@lru_cache
+def _build_default_weather() -> WeatherProvider:
+    settings = get_settings()
+    if settings.app_env == "test":
+        return FakeWeatherProvider()
+    return OpenMeteoWeatherProvider(timeout_ms=settings.weather_timeout_ms)
+
+
+@lru_cache
+def _build_default_web_search() -> WebSearchProvider:
+    settings = get_settings()
+    if settings.app_env == "test":
+        return FakeWebSearchProvider()
+    providers: list[WebSearchProvider] = []
+    if settings.web_search_api_key:
+        providers.append(
+            TavilySearchProvider(
+                api_key=settings.web_search_api_key,
+                timeout_ms=settings.web_search_timeout_ms,
+            )
+        )
+    providers.append(DuckDuckGoHtmlSearchProvider(timeout_ms=settings.web_search_timeout_ms))
+    providers.append(DuckDuckGoSearchProvider(timeout_ms=settings.web_search_timeout_ms))
+    if settings.resolved_llm_api_key and not settings.dev_fake_llm:
+        providers.append(
+            GeminiSearchProvider(
+                api_key=settings.resolved_llm_api_key,
+                model=settings.web_search_gemini_model,
+                timeout_ms=max(settings.web_search_timeout_ms, settings.llm_timeout_ms),
+            )
+        )
+    if len(providers) == 1:
+        return providers[0]
+    return FallbackWebSearchProvider(*providers)
+
+
 def get_llm_provider(request: Request) -> LLMProvider:
     override = getattr(request.app.state, "llm_provider", None)
     if override is not None:
@@ -109,6 +156,20 @@ def get_object_storage(request: Request) -> ObjectStorage:
     return _build_default_storage()
 
 
+def get_weather_provider(request: Request) -> WeatherProvider:
+    override = getattr(request.app.state, "weather_provider", None)
+    if override is not None:
+        return override  # type: ignore[no-any-return]
+    return _build_default_weather()
+
+
+def get_web_search_provider(request: Request) -> WebSearchProvider:
+    override = getattr(request.app.state, "web_search_provider", None)
+    if override is not None:
+        return override  # type: ignore[no-any-return]
+    return _build_default_web_search()
+
+
 def get_project_service(store: Store = Depends(get_app_store)) -> ProjectService:
     return ProjectService(store)  # type: ignore[arg-type]
 
@@ -118,6 +179,8 @@ def get_chat_service(
     store: Store = Depends(get_app_store),
     llm: LLMProvider = Depends(get_llm_provider),
     settings: Settings = Depends(get_settings),
+    weather: WeatherProvider = Depends(get_weather_provider),
+    web_search: WebSearchProvider = Depends(get_web_search_provider),
 ) -> ChatService:
     # Do not resolve embeddings during dependency injection for every chat request.
     # Task 1 (llm) must keep working even if embedding setup is mid-change or broken.
@@ -134,6 +197,8 @@ def get_chat_service(
         settings=settings,
         embeddings=override if override is not None else None,
         embeddings_factory=None if override is not None else embeddings_factory,
+        weather=weather,
+        web_search=web_search,
     )
 
 
@@ -149,3 +214,11 @@ def get_document_service(
         embeddings=embeddings,
         settings=settings,
     )
+
+
+def get_prompt_lab_service(
+    store: Store = Depends(get_app_store),
+    llm: LLMProvider = Depends(get_llm_provider),
+    settings: Settings = Depends(get_settings),
+) -> PromptLabService:
+    return PromptLabService(store=store, llm=llm, settings=settings)

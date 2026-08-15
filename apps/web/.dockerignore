@@ -1,0 +1,8 @@
+node_modules
+.next
+coverage
+generated
+*.tsbuildinfo
+.env
+.env.local
+e2e

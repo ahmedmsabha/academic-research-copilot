@@ -2,12 +2,15 @@
 
 FastAPI backend for Academic Research Copilot.
 
-## Task 2 (includes Task 1)
+## Task 4 (includes Tasks 1–3)
 
-- Gemini LLM + `gemini-embedding-001` embeddings
+- Versioned Prompt Lab templates (`zero_shot`, `one_shot`, `few_shot`, `chain_of_thought`, `structured`)
+- Project-scoped prompt experiments with ratings, timing, and usage when the provider returns it
+- Gemini LLM + constrained JSON route classification
+- Safe AST calculator (no `eval`)
+- Open-Meteo weather + DuckDuckGo HTML / Tavily / Gemini search behind provider adapters
+- Gemini `gemini-embedding-001` embeddings and project-scoped RAG
 - PDF upload, PyMuPDF extraction, chunking, pgvector storage
-- Project-scoped RAG chat with citation metadata
-- Local filesystem object storage (`STORAGE_LOCAL_ROOT`)
 - Dev auth via `X-User-Id`
 
 ## Run

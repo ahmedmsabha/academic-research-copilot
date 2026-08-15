@@ -106,6 +106,11 @@ class InsufficientEvidenceError(AppError):
         super().__init__(code="INSUFFICIENT_EVIDENCE", message=message, status_code=422)
 
 
+class ToolValidationError(AppError):
+    def __init__(self, message: str = "The tool request was invalid.") -> None:
+        super().__init__(code="TOOL_VALIDATION_ERROR", message=message, status_code=400)
+
+
 class ProjectDocumentLimitError(AppError):
     def __init__(self, message: str = "This project has reached its document limit.") -> None:
         super().__init__(code="DOCUMENT_LIMIT", message=message, status_code=409)

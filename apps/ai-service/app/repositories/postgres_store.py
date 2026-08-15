@@ -7,7 +7,14 @@ from uuid import uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.db.models import ConversationRow, DocumentChunkRow, DocumentRow, MessageRow, ProjectRow
+from app.db.models import (
+    ConversationRow,
+    DocumentChunkRow,
+    DocumentRow,
+    MessageRow,
+    ProjectRow,
+    PromptExperimentRow,
+)
 from app.rag.citations import RetrievedChunk
 from app.repositories.memory_store import (
     ChunkRecord,
@@ -15,6 +22,7 @@ from app.repositories.memory_store import (
     DocumentRecord,
     MessageRecord,
     ProjectRecord,
+    PromptExperimentRecord,
     utc_now,
 )
 
@@ -86,6 +94,42 @@ class PostgresStore:
             )
         )
         return _conversation(row) if row else None
+
+    def list_conversations(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+    ) -> list[ConversationRecord]:
+        rows = self._session.scalars(
+            select(ConversationRow)
+            .where(
+                ConversationRow.project_id == project_id,
+                ConversationRow.owner_user_id == owner_user_id,
+            )
+            .order_by(ConversationRow.created_at.desc(), ConversationRow.id.desc())
+        ).all()
+        return [_conversation(row) for row in rows]
+
+    def update_conversation_title(
+        self,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        title: str,
+    ) -> ConversationRecord | None:
+        row = self._session.scalar(
+            select(ConversationRow).where(
+                ConversationRow.id == conversation_id,
+                ConversationRow.owner_user_id == owner_user_id,
+            )
+        )
+        if row is None:
+            return None
+        row.title = title.strip() or row.title
+        self._session.commit()
+        self._session.refresh(row)
+        return _conversation(row)
 
     def list_messages(self, *, conversation_id: str) -> list[MessageRecord]:
         rows = self._session.scalars(
@@ -334,6 +378,93 @@ class PostgresStore:
             for chunk_row, filename in rows
         ]
 
+    def create_prompt_experiment(
+        self, experiment: PromptExperimentRecord
+    ) -> PromptExperimentRecord:
+        row = PromptExperimentRow(
+            id=experiment.id,
+            run_id=experiment.run_id,
+            project_id=experiment.project_id,
+            owner_user_id=experiment.owner_user_id,
+            user_input=experiment.user_input,
+            strategy=experiment.strategy,
+            template_version=experiment.template_version,
+            model=experiment.model,
+            provider=experiment.provider,
+            generated_output=experiment.generated_output,
+            elapsed_ms=experiment.elapsed_ms,
+            prompt_tokens=experiment.prompt_tokens,
+            completion_tokens=experiment.completion_tokens,
+            total_tokens=experiment.total_tokens,
+            rating_accuracy=experiment.rating_accuracy,
+            rating_clarity=experiment.rating_clarity,
+            rating_research_usefulness=experiment.rating_research_usefulness,
+            created_at=experiment.created_at,
+            updated_at=experiment.updated_at,
+        )
+        self._session.add(row)
+        self._session.commit()
+        self._session.refresh(row)
+        return _prompt_experiment(row)
+
+    def list_prompt_experiments(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+    ) -> list[PromptExperimentRecord]:
+        rows = self._session.scalars(
+            select(PromptExperimentRow)
+            .where(
+                PromptExperimentRow.project_id == project_id,
+                PromptExperimentRow.owner_user_id == owner_user_id,
+            )
+            .order_by(PromptExperimentRow.created_at.desc(), PromptExperimentRow.id.desc())
+        ).all()
+        return [_prompt_experiment(row) for row in rows]
+
+    def get_prompt_experiment(
+        self,
+        *,
+        experiment_id: str,
+        owner_user_id: str,
+    ) -> PromptExperimentRecord | None:
+        row = self._session.scalar(
+            select(PromptExperimentRow).where(
+                PromptExperimentRow.id == experiment_id,
+                PromptExperimentRow.owner_user_id == owner_user_id,
+            )
+        )
+        return _prompt_experiment(row) if row else None
+
+    def update_prompt_experiment_ratings(
+        self,
+        *,
+        experiment_id: str,
+        owner_user_id: str,
+        rating_accuracy: int | None,
+        rating_clarity: int | None,
+        rating_research_usefulness: int | None,
+    ) -> PromptExperimentRecord | None:
+        row = self._session.scalar(
+            select(PromptExperimentRow).where(
+                PromptExperimentRow.id == experiment_id,
+                PromptExperimentRow.owner_user_id == owner_user_id,
+            )
+        )
+        if row is None:
+            return None
+        if rating_accuracy is not None:
+            row.rating_accuracy = rating_accuracy
+        if rating_clarity is not None:
+            row.rating_clarity = rating_clarity
+        if rating_research_usefulness is not None:
+            row.rating_research_usefulness = rating_research_usefulness
+        row.updated_at = utc_now()
+        self._session.commit()
+        self._session.refresh(row)
+        return _prompt_experiment(row)
+
 
 def _project(row: ProjectRow) -> ProjectRecord:
     return ProjectRecord(
@@ -385,4 +516,28 @@ def _document(row: DocumentRow) -> DocumentRecord:
         failure_message=row.failure_message,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _prompt_experiment(row: PromptExperimentRow) -> PromptExperimentRecord:
+    return PromptExperimentRecord(
+        id=row.id,
+        run_id=row.run_id,
+        project_id=row.project_id,
+        owner_user_id=row.owner_user_id,
+        user_input=row.user_input,
+        strategy=row.strategy,
+        template_version=row.template_version,
+        model=row.model,
+        provider=row.provider,
+        generated_output=row.generated_output,
+        elapsed_ms=row.elapsed_ms,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        prompt_tokens=row.prompt_tokens,
+        completion_tokens=row.completion_tokens,
+        total_tokens=row.total_tokens,
+        rating_accuracy=row.rating_accuracy,
+        rating_clarity=row.rating_clarity,
+        rating_research_usefulness=row.rating_research_usefulness,
     )

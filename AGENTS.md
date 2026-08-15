@@ -330,6 +330,7 @@ The Prompt Lab compares the same user input across defined strategies:
 - `zero_shot`: direct instruction and question.
 - `one_shot`: direct task plus one representative example.
 - `few_shot`: task plus two or more curated examples.
+- `chain_of_thought`: numbered working a student can read, then a final answer (not hidden scratchpad).
 - `structured`: require a structured, concise final output; do not expose private chain-of-thought.
 
 ### Implementation rules

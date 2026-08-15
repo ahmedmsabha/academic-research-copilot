@@ -38,6 +38,15 @@ def create_project(
     return service.create_project(owner_user_id=user_id, name=body.name)
 
 
+@router.get("/{project_id}/conversations", response_model=list[ConversationResponse])
+def list_conversations(
+    project_id: str,
+    user_id: str = Depends(require_user_id),
+    service: ProjectService = Depends(get_project_service),
+) -> list[ConversationResponse]:
+    return service.list_conversations(owner_user_id=user_id, project_id=project_id)
+
+
 @router.post(
     "/{project_id}/conversations",
     response_model=ConversationResponse,

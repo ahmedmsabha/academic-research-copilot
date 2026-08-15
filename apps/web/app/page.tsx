@@ -2,32 +2,36 @@ import Link from "next/link";
 
 import { AppNav } from "@/components/AppNav";
 
-const features = [
+const capabilities = [
+  {
+    href: "/workspace",
+    label: "Workspace",
+    title: "Complete assistant",
+    body: "Chat, PDF grounding, tools, and conversation history in one research workspace.",
+  },
   {
     href: "/chat",
-    task: "Task 1",
-    title: "General chat",
-    body: "Gemini conversational chat with history, loading states, and safe errors.",
+    label: "Chat",
+    title: "Persistent conversations",
+    body: "Gemini chat with loading states, safe errors, and history that reloads after refresh.",
   },
   {
     href: "/rag",
-    task: "Task 2",
-    title: "Documents & RAG",
-    body: "Upload PDFs, index embeddings, and ask grounded questions with page citations.",
+    label: "Documents",
+    title: "PDF upload and RAG",
+    body: "Index project-scoped PDFs and get answers cited to filename and page.",
   },
   {
-    href: "/chat",
-    task: "Task 3",
-    title: "Agent tools",
-    body: "Coming next: calculator, weather, and web search routing.",
-    disabled: true,
+    href: "/agent",
+    label: "Tools",
+    title: "Calculator, weather, search",
+    body: "The agent picks a tool automatically and labels external evidence.",
   },
   {
-    href: "/chat",
-    task: "Task 4",
-    title: "Prompt Lab",
-    body: "Coming next: compare zero-shot, one-shot, few-shot, and structured prompts.",
-    disabled: true,
+    href: "/prompt-lab",
+    label: "Prompt Lab",
+    title: "Prompting comparison",
+    body: "Compare zero-shot, one-shot, few-shot, step-by-step, and structured output.",
   },
 ] as const;
 
@@ -37,47 +41,43 @@ export default function HomePage() {
       <AppNav currentPath="/" />
       <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
         <section className="max-w-3xl">
-          <p className="text-xs uppercase tracking-[0.18em] text-ink-muted">Portfolio app</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-ink-muted">Production assistant</p>
           <h1 className="mt-2 font-display text-4xl text-ink sm:text-5xl">
             Academic Research Copilot
           </h1>
           <p className="mt-4 text-lg text-ink-muted">
-            One product with cumulative features. Each task adds a capability—nothing replaces what
-            came before.
+            A complete AI assistant for students and researchers: chat with history, grounded PDF
+            answers, tool calling, and a Prompt Lab — with safe errors and a modern workspace.
           </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/workspace"
+              className="rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+            >
+              Open workspace
+            </Link>
+            <Link
+              href="/prompt-lab"
+              className="rounded-xl border border-line bg-white/70 px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-accent-soft"
+            >
+              Compare prompts
+            </Link>
+          </div>
         </section>
 
-        <section className="mt-10 grid gap-4 sm:grid-cols-2" aria-label="Features">
-          {features.map((feature) => {
-            const className =
-              "rounded-3xl border border-line bg-white/70 p-5 shadow-[0_16px_40px_rgba(28,36,48,0.06)] backdrop-blur transition hover:border-accent/40";
-            const content = (
-              <>
-                <p className="text-xs uppercase tracking-[0.16em] text-ink-muted">{feature.task}</p>
-                <h2 className="mt-2 font-display text-2xl text-ink">{feature.title}</h2>
-                <p className="mt-2 text-sm text-ink-muted">{feature.body}</p>
-                {"disabled" in feature && feature.disabled ? (
-                  <p className="mt-4 text-xs font-medium text-ink-muted">Coming soon</p>
-                ) : (
-                  <p className="mt-4 text-sm font-medium text-accent">Open feature →</p>
-                )}
-              </>
-            );
-
-            if ("disabled" in feature && feature.disabled) {
-              return (
-                <div key={feature.title} className={`${className} opacity-70`} aria-disabled="true">
-                  {content}
-                </div>
-              );
-            }
-
-            return (
-              <Link key={feature.title} href={feature.href} className={className}>
-                {content}
-              </Link>
-            );
-          })}
+        <section className="mt-10 grid gap-4 sm:grid-cols-2" aria-label="Capabilities">
+          {capabilities.map((item) => (
+            <Link
+              key={item.title}
+              href={item.href}
+              className="rounded-3xl border border-line bg-white/70 p-5 shadow-[0_16px_40px_rgba(28,36,48,0.06)] backdrop-blur transition hover:border-accent/40"
+            >
+              <p className="text-xs uppercase tracking-[0.16em] text-ink-muted">{item.label}</p>
+              <h2 className="mt-2 font-display text-2xl text-ink">{item.title}</h2>
+              <p className="mt-2 text-sm text-ink-muted">{item.body}</p>
+              <p className="mt-4 text-sm font-medium text-accent">Open →</p>
+            </Link>
+          ))}
         </section>
       </main>
     </>

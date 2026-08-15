@@ -124,11 +124,7 @@ class GeminiEmbeddingProvider:
                 last_error = mapped
 
                 # Large batches often trip free-tier limits; fall back to one text at a time.
-                if (
-                    _is_rate_limit_error(mapped)
-                    and len(batch) > 1
-                    and attempt == 0
-                ):
+                if _is_rate_limit_error(mapped) and len(batch) > 1 and attempt == 0:
                     logger.warning(
                         "embedding_batch_falling_back_to_singles",
                         extra={"batch_size": len(batch)},

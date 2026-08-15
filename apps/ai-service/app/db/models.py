@@ -27,6 +27,7 @@ class ProjectRow(Base):
 
     conversations: Mapped[list[ConversationRow]] = relationship(back_populates="project")
     documents: Mapped[list[DocumentRow]] = relationship(back_populates="project")
+    prompt_experiments: Mapped[list[PromptExperimentRow]] = relationship(back_populates="project")
 
 
 class ConversationRow(Base):
@@ -135,3 +136,40 @@ class DocumentChunkRow(Base):
     )
 
     document: Mapped[DocumentRow] = relationship(back_populates="chunks")
+
+
+class PromptExperimentRow(Base):
+    __tablename__ = "prompt_experiments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(
+        String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    owner_user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    user_input: Mapped[str] = mapped_column(Text, nullable=False)
+    strategy: Mapped[str] = mapped_column(String, nullable=False)
+    template_version: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    provider: Mapped[str] = mapped_column(String, nullable=False)
+    generated_output: Mapped[str] = mapped_column(Text, nullable=False)
+    elapsed_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating_accuracy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating_clarity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating_research_usefulness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    project: Mapped[ProjectRow] = relationship(back_populates="prompt_experiments")

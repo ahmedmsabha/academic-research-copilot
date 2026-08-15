@@ -12,6 +12,7 @@ from app.core.errors import register_exception_handlers
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    settings.validate_runtime()
     app = FastAPI(
         title="Academic Research Copilot AI Service",
         version="0.1.0",
@@ -32,7 +33,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "service": "ai-service"}
 
     return app
 

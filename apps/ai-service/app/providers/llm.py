@@ -32,6 +32,9 @@ class LLMResponse:
     text: str
     model: str
     provider: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class LLMProvider(Protocol):
@@ -124,7 +127,31 @@ class GeminiLLMProvider:
         if not text:
             raise ProviderUnavailableError("The model returned an empty response.")
 
-        return LLMResponse(text=text, model=model, provider=self.provider_name)
+        prompt_tokens, completion_tokens, total_tokens = _usage_tokens(response)
+        return LLMResponse(
+            text=text,
+            model=model,
+            provider=self.provider_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        )
+
+
+def _usage_tokens(response: object) -> tuple[int | None, int | None, int | None]:
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return None, None, None
+    prompt = _optional_int(getattr(usage, "prompt_token_count", None))
+    completion = _optional_int(getattr(usage, "candidates_token_count", None))
+    total = _optional_int(getattr(usage, "total_token_count", None))
+    return prompt, completion, total
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 def _map_provider_exception(

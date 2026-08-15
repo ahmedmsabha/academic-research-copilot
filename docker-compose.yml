@@ -1,4 +1,76 @@
-# Local stack scaffold — services will be filled in as apps are implemented.
-# Expected: web (Next.js), ai-service (FastAPI), postgres (pgvector), optional storage emulator.
+# Local production-shaped stack: Next.js, FastAPI, PostgreSQL + pgvector.
+# Copy .env.example to .env and set GEMINI_API_KEY before `docker compose up --build`.
+# Compose overrides DATABASE_URL to the local Postgres service (do not put secrets in this file).
 
-services: {}
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: copilot
+      POSTGRES_DB: academic_copilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot -d academic_copilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgresql://copilot:copilot@postgres:5432/academic_copilot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  ai-service:
+    build:
+      context: ./apps/ai-service
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://copilot:copilot@postgres:5432/academic_copilot
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      STORAGE_LOCAL_ROOT: /data/uploads
+      DEV_FAKE_LLM: "false"
+      DEV_FAKE_EMBEDDINGS: "false"
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      ai-service:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploads:

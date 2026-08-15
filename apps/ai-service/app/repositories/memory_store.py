@@ -1,11 +1,10 @@
 """In-memory store for tests and DATABASE_URL-less local runs."""
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
+from typing import Any
 from uuid import uuid4
 
 from app.rag.citations import RetrievedChunk
@@ -84,12 +83,36 @@ class ChunkRecord:
 
 
 @dataclass
+class PromptExperimentRecord:
+    id: str
+    run_id: str
+    project_id: str
+    owner_user_id: str
+    user_input: str
+    strategy: str
+    template_version: str
+    model: str
+    provider: str
+    generated_output: str
+    elapsed_ms: int
+    created_at: datetime
+    updated_at: datetime
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    rating_accuracy: int | None = None
+    rating_clarity: int | None = None
+    rating_research_usefulness: int | None = None
+
+
+@dataclass
 class MemoryStore:
     projects: dict[str, ProjectRecord] = field(default_factory=dict)
     conversations: dict[str, ConversationRecord] = field(default_factory=dict)
     messages: dict[str, list[MessageRecord]] = field(default_factory=dict)
     documents: dict[str, DocumentRecord] = field(default_factory=dict)
     chunks: dict[str, list[ChunkRecord]] = field(default_factory=dict)
+    prompt_experiments: dict[str, PromptExperimentRecord] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock)
 
     def create_project(self, *, owner_user_id: str, name: str) -> ProjectRecord:
@@ -144,6 +167,35 @@ class MemoryStore:
             conversation = self.conversations.get(conversation_id)
             if conversation is None or conversation.owner_user_id != owner_user_id:
                 return None
+            return conversation
+
+    def list_conversations(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+    ) -> list[ConversationRecord]:
+        with self._lock:
+            items = [
+                conversation
+                for conversation in self.conversations.values()
+                if conversation.project_id == project_id
+                and conversation.owner_user_id == owner_user_id
+            ]
+            return sorted(items, key=lambda item: (item.created_at, item.id), reverse=True)
+
+    def update_conversation_title(
+        self,
+        *,
+        conversation_id: str,
+        owner_user_id: str,
+        title: str,
+    ) -> ConversationRecord | None:
+        with self._lock:
+            conversation = self.conversations.get(conversation_id)
+            if conversation is None or conversation.owner_user_id != owner_user_id:
+                return None
+            conversation.title = title.strip() or conversation.title
             return conversation
 
     def list_messages(self, *, conversation_id: str) -> list[MessageRecord]:
@@ -250,9 +302,7 @@ class MemoryStore:
                 if doc.project_id == project_id and doc.status == "ready"
             }
             filenames = {
-                doc.id: doc.filename
-                for doc in self.documents.values()
-                if doc.id in ready_ids
+                doc.id: doc.filename for doc in self.documents.values() if doc.id in ready_ids
             }
             candidates: list[RetrievedChunk] = []
             for document_id in ready_ids:
@@ -327,6 +377,61 @@ class MemoryStore:
                         return results
             return results
 
+    def create_prompt_experiment(
+        self, experiment: PromptExperimentRecord
+    ) -> PromptExperimentRecord:
+        with self._lock:
+            self.prompt_experiments[experiment.id] = experiment
+            return experiment
+
+    def list_prompt_experiments(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+    ) -> list[PromptExperimentRecord]:
+        with self._lock:
+            items = [
+                item
+                for item in self.prompt_experiments.values()
+                if item.project_id == project_id and item.owner_user_id == owner_user_id
+            ]
+            return sorted(items, key=lambda item: (item.created_at, item.id), reverse=True)
+
+    def get_prompt_experiment(
+        self,
+        *,
+        experiment_id: str,
+        owner_user_id: str,
+    ) -> PromptExperimentRecord | None:
+        with self._lock:
+            item = self.prompt_experiments.get(experiment_id)
+            if item is None or item.owner_user_id != owner_user_id:
+                return None
+            return item
+
+    def update_prompt_experiment_ratings(
+        self,
+        *,
+        experiment_id: str,
+        owner_user_id: str,
+        rating_accuracy: int | None,
+        rating_clarity: int | None,
+        rating_research_usefulness: int | None,
+    ) -> PromptExperimentRecord | None:
+        with self._lock:
+            item = self.prompt_experiments.get(experiment_id)
+            if item is None or item.owner_user_id != owner_user_id:
+                return None
+            if rating_accuracy is not None:
+                item.rating_accuracy = rating_accuracy
+            if rating_clarity is not None:
+                item.rating_clarity = rating_clarity
+            if rating_research_usefulness is not None:
+                item.rating_research_usefulness = rating_research_usefulness
+            item.updated_at = utc_now()
+            return item
+
 
 _store = MemoryStore()
 
@@ -342,19 +447,46 @@ def reset_store() -> MemoryStore:
     return _store
 
 
-def citations_to_json(citations: list[dict[str, object]] | None) -> str | None:
+def citations_to_json(
+    citations: list[dict[str, object]] | None,
+    web_sources: list[dict[str, object]] | None = None,
+) -> str | None:
+    if web_sources:
+        return json.dumps(
+            {
+                "document_citations": citations or [],
+                "web_sources": web_sources,
+            }
+        )
     if not citations:
         return None
     return json.dumps(citations)
 
 
 def citations_from_json(raw: str | None) -> list[dict[str, object]]:
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
+    parsed = _parse_message_payload(raw)
     if isinstance(parsed, list):
         return [item for item in parsed if isinstance(item, dict)]
+    if isinstance(parsed, dict):
+        items = parsed.get("document_citations") or parsed.get("citations") or []
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
     return []
+
+
+def web_sources_from_json(raw: str | None) -> list[dict[str, object]]:
+    parsed = _parse_message_payload(raw)
+    if isinstance(parsed, dict):
+        items = parsed.get("web_sources") or []
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+    return []
+
+
+def _parse_message_payload(raw: str | None) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None

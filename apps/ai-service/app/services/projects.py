@@ -67,3 +67,25 @@ class ProjectService:
             title=conversation.title,
             created_at=conversation.created_at,
         )
+
+    def list_conversations(
+        self,
+        *,
+        owner_user_id: str,
+        project_id: str,
+    ) -> list[ConversationResponse]:
+        project = self._store.get_project(project_id=project_id, owner_user_id=owner_user_id)
+        if project is None:
+            raise NotFoundError("Project not found.")
+        return [
+            ConversationResponse(
+                id=conversation.id,
+                project_id=conversation.project_id,
+                title=conversation.title,
+                created_at=conversation.created_at,
+            )
+            for conversation in self._store.list_conversations(
+                project_id=project_id,
+                owner_user_id=owner_user_id,
+            )
+        ]

@@ -1,58 +1,65 @@
-# Architecture (Task 2 — RAG)
+# Architecture (Task 5 — Complete assistant)
 
-Academic Research Copilot is a monorepo with a Next.js frontend and a FastAPI AI service. Task 2 adds project-scoped PDF upload, indexing, pgvector retrieval, and grounded chat citations.
+Academic Research Copilot is a monorepo with a Next.js frontend and a FastAPI AI service. Task 5 unifies chat, RAG, tools, and Prompt Lab behind a workspace UI and a Dockerized local stack.
 
 ## System overview
 
 ```text
-┌────────────────────┐       HTTP /api/v1        ┌──────────────────────────┐
-│  apps/web          │ ─────────────────────────▶│  apps/ai-service         │
-│  Next.js + TS      │◀───────────────────────── │  FastAPI + Pydantic      │
-│  Chat + Documents  │                           │  RAG + Chat services     │
-└────────────────────┘                           └────────────┬─────────────┘
-                                                              │
-                 ┌────────────────────────────────────────────┼────────────────┐
-                 │                                            ▼                │
-                 │  ┌──────────────┐   ┌────────────────┐  ┌────────────────┐ │
-                 │  │ Gemini LLM   │   │ Gemini embed   │  │ Local PDF      │ │
-                 │  │ generate     │   │ text-embedding │  │ storage (.data)│ │
-                 │  └──────────────┘   │ -004           │  └────────────────┘ │
-                 │                     └────────────────┘                      │
-                 │                            ▲                                │
-                 │                            │                                │
-                 │                   ┌────────┴────────┐                       │
-                 │                   │ Prisma Postgres │                       │
-                 │                   │ + pgvector      │                       │
-                 │                   └─────────────────┘                       │
-                 └─────────────────────────────────────────────────────────────┘
+┌────────────────────┐       HTTP /api/v1        ┌──────────────────────────────┐
+│  apps/web          │ ─────────────────────────▶│  apps/ai-service             │
+│  Next.js + TS      │◀───────────────────────── │  FastAPI + Pydantic          │
+│  Workspace / Chat  │                           │  Chat + RAG + Agent + Lab    │
+│  RAG / Agent / Lab │                           │                              │
+└────────────────────┘                           └──────────────┬───────────────┘
+                                                                │
+        ┌───────────────────────────────────────────────────────┼─────────────────┐
+        │                                                       ▼                 │
+        │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────┐  │
+        │  │ Gemini LLM   │  │ Gemini embed │  │ Open-Meteo  │  │ DuckDuckGo   │  │
+        │  │ + JSON router│  │ + pgvector   │  │ weather     │  │ HTML / Tavily│  │
+        │  └──────────────┘  └──────────────┘  └─────────────┘  └──────────────┘  │
+        │         ▲                  ▲                                            │
+        │         │                  │                                            │
+        │  ┌──────┴──────┐   ┌───────┴────────┐  ┌────────────┐                   │
+        │  │ Prompt Lab  │   │ Postgres       │  │ Local PDF  │                   │
+        │  │ templates   │   │ + pgvector     │  │ storage    │                   │
+        │  └─────────────┘   └────────────────┘  └────────────┘                   │
+        └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Upload and indexing flow
+Docker Compose runs `web`, `ai-service`, and `postgres` (pgvector image), with a one-shot `migrate` service. Tool routing is in [`architecture-diagram.svg`](architecture-diagram.svg). Task 2 RAG overview remains [`architecture-diagram.png`](architecture-diagram.png).
 
-1. Authenticated user uploads a PDF to `POST /api/v1/projects/{project_id}/documents`.
-2. AI service validates PDF signature/size, stores bytes via `ObjectStorage` (local filesystem for Task 2), and creates a `documents` row (`status=queued`).
-3. Background indexing runs the state machine:
-   `queued → extracting → chunking → embedding → indexing → ready` (or `failed`).
-4. PyMuPDF extracts page-aware text; chunker splits ~800 chars with ~150 overlap.
-5. Gemini `gemini-embedding-001` embeds each chunk (768-dim via `output_dimensionality`); vectors are stored in `document_chunks.embedding` (`vector(768)`).
+## Workspace data flow
 
-## Grounded question answering
+1. Validate user, project, conversation, and message text.
+2. List or create conversations for the active project (`GET/POST .../conversations`).
+3. On the first user message, retitle a default conversation from the question text.
+4. If `mode` is pinned, use that route; otherwise deterministic rules plus constrained JSON classification.
+5. Emit a user-safe status only. Never expose chain-of-thought.
+6. Execute one selected tool/service with validated arguments and timeouts.
+7. Persist user and assistant messages. Document citations come from retrieval metadata; web/weather answers are labeled external.
 
-1. User sends a chat message for a project conversation.
-2. If the project has any `ready` documents, ChatService uses the `rag` route:
-   - Embed the question
-   - Retrieve top-k chunks by cosine distance, filtered by `project_id`, `status=ready`, and embedding model/dimension
-   - If no chunk is under the distance threshold, return an honest insufficient-evidence answer (no fabricated citations)
-   - Otherwise prompt Gemini with delimited document excerpts only
-3. Citations are built in application code from retrieval metadata (`Filename.pdf, p. N`) and returned/persisted with the assistant message.
-4. If no ready documents exist, ChatService keeps the Task 1 `llm` route.
+## Prompt Lab data flow
+
+1. Validate user, project, and non-blank input.
+2. Load versioned templates (`prompt-lab-v1`) for the requested strategies (default: all five).
+3. Run each strategy independently against the same model settings (`asyncio.gather`).
+4. For `structured`, parse JSON and return formatted fields only. Invalid JSON becomes a safe parse-failure message — raw model text is not shown.
+5. Persist successful results with template version, elapsed time, and usage tokens when the provider returns them. `cost_usd` stays unavailable.
+6. Ratings (accuracy / clarity / research usefulness, 1–5) are stored on the experiment row, still scoped to the owner and project.
+
+## Upload / RAG
+
+1. Upload PDF → validate → store object → index (`queued → … → ready`).
+2. Grounded answers retrieve project-scoped chunks and attach citations from retrieval metadata.
+3. Insufficient evidence is returned honestly when scores are weak.
 
 ## Project isolation
 
-Every document, chunk, conversation, and retrieval query is scoped by owner (`X-User-Id` in development) and `project_id`. Deleting a document removes chunks and the storage object so it cannot be retrieved again.
+Every document, chunk, conversation, retrieval query, tool-backed chat, and prompt experiment is scoped by owner (`X-User-Id` in development) and `project_id`.
 
-## Future (later tasks)
+## Production notes
 
-- Agent router + calculator / weather / web search (Task 3)
-- Prompt Lab (Task 4)
-- Dockerized stack, production object storage, and full auth (Task 5)
+- `APP_ENV=production` requires `GEMINI_API_KEY` and `DATABASE_URL` and rejects fake providers.
+- `/docs` is disabled in production.
+- Deploy steps: [`deploy.md`](deploy.md).

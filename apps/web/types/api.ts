@@ -21,9 +21,17 @@ export type Citation = {
   label: string;
 };
 
-export type MessageRoute = "llm" | "rag";
+export type MessageRoute = "llm" | "rag" | "calculator" | "web_search" | "weather";
 
-export type MessageRoutePreference = "auto" | "llm" | "rag";
+export type MessageRoutePreference = "auto" | MessageRoute;
+
+export type WebSource = {
+  title: string;
+  url: string;
+  snippet: string | null;
+  provider: string;
+  retrieved_at: string | null;
+};
 
 export type Message = {
   id: string;
@@ -35,6 +43,7 @@ export type Message = {
   provider?: string | null;
   model?: string | null;
   citations?: Citation[];
+  web_sources?: WebSource[];
   created_at: string;
 };
 
@@ -44,6 +53,7 @@ export type SendMessageResponse = {
   route: MessageRoute;
   status: string;
   citations: Citation[];
+  web_sources: WebSource[];
 };
 
 export type DocumentStatus =
@@ -68,4 +78,55 @@ export type Document = {
   failure_message: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type PromptStrategy =
+  | "zero_shot"
+  | "one_shot"
+  | "few_shot"
+  | "chain_of_thought"
+  | "structured";
+
+export type PromptExperiment = {
+  id: string | null;
+  run_id: string;
+  project_id: string;
+  strategy: PromptStrategy;
+  template_version: string;
+  input: string;
+  output: string;
+  model: string | null;
+  provider: string | null;
+  elapsed_ms: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  cost_usd: number | null;
+  rating_accuracy: number | null;
+  rating_clarity: number | null;
+  rating_research_usefulness: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string | null;
+};
+
+export type PromptExperimentRun = {
+  run_id: string;
+  project_id: string;
+  input: string;
+  results: PromptExperiment[];
+};
+
+export type PromptLibraryStrategy = {
+  id: PromptStrategy;
+  name: string;
+  description: string;
+  when_better: string;
+  user_template: string;
+  template_version: string;
+};
+
+export type PromptLibrary = {
+  version: string;
+  strategies: PromptLibraryStrategy[];
 };

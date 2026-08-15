@@ -4,6 +4,10 @@ import type {
   Message,
   MessageRoutePreference,
   Project,
+  PromptExperiment,
+  PromptExperimentRun,
+  PromptLibrary,
+  PromptStrategy,
   SendMessageResponse,
 } from "@/types/api";
 
@@ -119,6 +123,10 @@ export const api = {
     });
   },
 
+  listConversations(projectId: string): Promise<Conversation[]> {
+    return apiFetch<Conversation[]>(`/api/v1/projects/${projectId}/conversations`);
+  },
+
   listMessages(conversationId: string): Promise<Message[]> {
     return apiFetch<Message[]>(`/api/v1/conversations/${conversationId}/messages`);
   },
@@ -160,6 +168,44 @@ export const api = {
   deleteDocument(projectId: string, documentId: string): Promise<void> {
     return apiFetch<void>(`/api/v1/projects/${projectId}/documents/${documentId}`, {
       method: "DELETE",
+    });
+  },
+
+  getPromptLibrary(): Promise<PromptLibrary> {
+    return apiFetch<PromptLibrary>("/api/v1/prompt-library");
+  },
+
+  runPromptExperiments(
+    projectId: string,
+    input: string,
+    strategies?: PromptStrategy[],
+  ): Promise<PromptExperimentRun> {
+    return apiFetch<PromptExperimentRun>(`/api/v1/projects/${projectId}/prompt-experiments`, {
+      method: "POST",
+      body: JSON.stringify({
+        input,
+        ...(strategies ? { strategies } : {}),
+      }),
+    });
+  },
+
+  listPromptExperiments(projectId: string): Promise<{ runs: PromptExperimentRun[] }> {
+    return apiFetch<{ runs: PromptExperimentRun[] }>(
+      `/api/v1/projects/${projectId}/prompt-experiments`,
+    );
+  },
+
+  ratePromptExperiment(
+    experimentId: string,
+    ratings: {
+      rating_accuracy?: number;
+      rating_clarity?: number;
+      rating_research_usefulness?: number;
+    },
+  ): Promise<PromptExperiment> {
+    return apiFetch<PromptExperiment>(`/api/v1/prompt-experiments/${experimentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(ratings),
     });
   },
 };
