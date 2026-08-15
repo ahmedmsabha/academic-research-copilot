@@ -7,6 +7,8 @@ FROM deps AS builder
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_BUILD=1
+# Optional build-time fallback. Production should set runtime API_BASE_URL
+# (the AI origin, no /api or /health suffix). The browser uses same-origin /api/v1.
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 # prisma.config.ts reads DATABASE_URL at generate time; this build does not connect.

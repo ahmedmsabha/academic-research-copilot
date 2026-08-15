@@ -64,6 +64,8 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     environment:
+      # Server-side proxy target (container DNS). Browser calls same-origin /api/v1.
+      API_BASE_URL: http://ai-service:8000
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
     ports:
       - "3000:3000"

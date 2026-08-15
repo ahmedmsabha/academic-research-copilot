@@ -5,10 +5,10 @@ Academic Research Copilot is a monorepo with a Next.js frontend and a FastAPI AI
 ## System overview
 
 ```text
-┌────────────────────┐       HTTP /api/v1        ┌──────────────────────────────┐
-│  apps/web          │ ─────────────────────────▶│  apps/ai-service             │
-│  Next.js + TS      │◀───────────────────────── │  FastAPI + Pydantic          │
-│  Workspace / Chat  │                           │  Chat + RAG + Agent + Lab    │
+┌────────────────────┐  same-origin /api/v1      ┌──────────────────────────────┐
+│  apps/web          │  proxy → API_BASE_URL     │  apps/ai-service             │
+│  Next.js + TS      │ ─────────────────────────▶│  FastAPI + Pydantic          │
+│  Workspace / Chat  │◀───────────────────────── │  Chat + RAG + Agent + Lab    │
 │  RAG / Agent / Lab │                           │                              │
 └────────────────────┘                           └──────────────┬───────────────┘
                                                                 │

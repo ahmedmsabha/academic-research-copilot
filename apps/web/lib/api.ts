@@ -31,10 +31,15 @@ export class ApiError extends Error {
 }
 
 function getBaseUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL;
+  // Browser calls this Next.js app; `app/api/v1/[...path]` proxies to the AI service
+  // using runtime API_BASE_URL so Dokploy Environment values work without a rebuild.
+  if (typeof window !== "undefined") {
+    return "";
+  }
+  const base = process.env["API_BASE_URL"] ?? process.env["NEXT_PUBLIC_API_BASE_URL"];
   if (!base) {
     throw new ApiError({
-      message: "NEXT_PUBLIC_API_BASE_URL is not configured.",
+      message: "API_BASE_URL is not configured.",
       code: "CONFIG_ERROR",
       status: 500,
     });

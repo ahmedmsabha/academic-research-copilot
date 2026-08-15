@@ -1,12 +1,14 @@
 # API (Task 5)
 
-Base URL: `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`)
+Base URL: the AI service origin (`API_BASE_URL` / `NEXT_PUBLIC_API_BASE_URL`, default `http://localhost:8000`). The web app proxies browser calls through same-origin `/api/v1`.
 
 Auth (dev): send `X-User-Id: <stable-dev-id>` on every project/conversation/document/prompt-lab request.
 
 ## Health
 
-`GET /health` → `{ "status": "ok", "service": "ai-service" }`
+`GET /health` (also `/api/health`) → `{ "status": "ok", "service": "ai-service" }`
+
+`GET /` and `GET /api` return `{ "service": "ai-service", "health": "/health", "api": "/api/v1" }`. App routes live under `/api/v1`, not `/api`.
 
 ## Projects
 

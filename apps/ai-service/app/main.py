@@ -31,7 +31,16 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(api_router)
 
+    @app.get("/")
+    def root() -> dict[str, str]:
+        return {"service": "ai-service", "health": "/health", "api": "/api/v1"}
+
+    @app.get("/api")
+    def api_index() -> dict[str, str]:
+        return {"service": "ai-service", "health": "/health", "api": "/api/v1"}
+
     @app.get("/health")
+    @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "ai-service"}
 

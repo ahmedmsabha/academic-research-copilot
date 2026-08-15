@@ -27,6 +27,16 @@ def test_health(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_health_alias_and_index(client: TestClient) -> None:
+    alias = client.get("/api/health")
+    assert alias.status_code == 200
+    assert alias.json() == {"status": "ok", "service": "ai-service"}
+
+    index = client.get("/api")
+    assert index.status_code == 200
+    assert index.json()["api"] == "/api/v1"
+
+
 def test_requires_user_header(client: TestClient) -> None:
     response = client.post("/api/v1/projects", json={"name": "My Research Project"})
     assert response.status_code == 401

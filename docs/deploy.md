@@ -7,7 +7,7 @@ Do not add a second Postgres on the VPS. Keep the existing Prisma `DATABASE_URL`
 ```text
 Browser  →  Dokploy app “web” (Next.js, apps/web)
                 │
-                │  NEXT_PUBLIC_API_BASE_URL
+                │  same-origin /api/v1  →  API_BASE_URL
                 ▼
          Dokploy app “ai” (FastAPI, apps/ai-service)
                 │
@@ -74,6 +74,10 @@ Domains → Generate domain (or attach your own). Set **port 8000**. Then:
 ```bash
 curl https://<ai-domain>/health
 # {"status":"ok","service":"ai-service"}
+
+# /api is an index, not the app. Real routes are /api/v1/...
+curl -i https://<ai-domain>/api/v1/projects
+# 401 UNAUTHORIZED without X-User-Id — that means the API is reachable
 ```
 
 ## 2. Dokploy — web app
@@ -87,31 +91,37 @@ Second **Application**, same GitHub repo.
 | Dockerfile | `Dockerfile` |
 | Port | `3000` (the domain must also use port 3000) |
 
-Build argument (required — Next.js inlines this at build time):
+Environment variable (runtime — **not** a Next.js build argument):
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://<ai-domain>
+API_BASE_URL=https://<ai-domain>
 ```
 
-No trailing slash. After you change it, rebuild the web app.
-
-Environment variable (same value):
+Use the AI origin only. No `/api`, `/health`, `/api/v1`, or trailing slash.
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://<ai-domain>
+# Correct
+API_BASE_URL=https://ai-xxxxx.dokploy.app
+
+# Wrong — these are paths, not the base
+API_BASE_URL=https://ai-xxxxx.dokploy.app/api
+API_BASE_URL=https://ai-xxxxx.dokploy.app/health
+API_BASE_URL=http://localhost:8000
 ```
+
+`NEXT_PUBLIC_API_BASE_URL` is accepted as a fallback with the same value. After you change `API_BASE_URL`, **redeploy the web app** so the container picks up the env (a full rebuild is only required when the proxy code itself changes).
 
 Generate a domain, port **3000**.
 
 ## 3. Wire CORS
 
-In the **AI** app environment, set:
+The workspace UI calls the web app, which proxies to the AI service, so CORS is optional for `/workspace`. Still set it on the **AI** app if you open the API from the browser:
 
 ```text
 CORS_ORIGINS=https://<web-domain>
 ```
 
-Redeploy the AI app. Then open `https://<web-domain>/workspace`.
+No trailing slash. Redeploy the AI app. Then open `https://<web-domain>/workspace`.
 
 ## 4. Smoke test
 
