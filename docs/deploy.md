@@ -1,79 +1,119 @@
 # Deploy
 
-Academic Research Copilot is two services plus PostgreSQL with pgvector. Secrets stay server-side. Never put API keys in `NEXT_PUBLIC_*` variables.
+Production target: **Vercel** for `apps/web`, **Fly.io** for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
 
-## Option A — Docker Compose (recommended local / VPS)
-
-1. Copy `.env.example` to `.env` and set `GEMINI_API_KEY`.
-2. From the repository root:
-
-```bash
-docker compose up --build
-```
-
-3. Open [http://localhost:3000](http://localhost:3000). The browser calls the AI service at `http://localhost:8000`.
-4. Compose starts PostgreSQL + pgvector, runs Prisma migrations, then the FastAPI and Next.js services.
-
-Named volumes persist the database and uploaded PDFs. Do not bake secrets into images.
-
-To stop:
-
-```bash
-docker compose down
-```
-
-## Option B — Split hosts (Vercel + container + Prisma Postgres)
-
-This matches a typical portfolio deploy.
-
-| Piece | Suggested host |
-|---|---|
-| `apps/web` | Vercel or any Node host |
-| `apps/ai-service` | Render, Railway, Fly.io, or a VPS running the AI-service Docker image |
-| Database | Prisma Postgres or managed PostgreSQL with the `vector` extension |
-| PDF files | Persistent volume on the AI service (`STORAGE_LOCAL_ROOT`) |
-
-### Web
-
-Set:
+Secrets stay server-side. Never put API keys or `DATABASE_URL` in `NEXT_PUBLIC_*` variables.
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://your-ai-service.example
+Browser  →  Vercel (Next.js)  →  Fly.io (FastAPI)
+                                      │
+                                      ├─ Prisma Postgres + pgvector
+                                      └─ Fly volume  /data/uploads  (PDFs)
 ```
 
-This value is public (it is the API origin, not a secret). Rebuild the web app after changing it.
+## 0. Prerequisites
 
-### AI service
+- [Vercel](https://vercel.com) account connected to GitHub
+- [Fly.io](https://fly.io) account and the [flyctl](https://fly.io/docs/flyctl/install/) CLI
+- Existing Prisma Postgres URL (`DATABASE_URL`) with the `vector` extension
+- `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
 
-Set at least:
+Install flyctl and log in:
 
-```text
-APP_ENV=production
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB?sslmode=require
-GEMINI_API_KEY=...
-CORS_ORIGINS=https://your-web.example
-STORAGE_LOCAL_ROOT=/data/uploads
+```bash
+fly auth login
 ```
 
-`APP_ENV=production` rejects `DEV_FAKE_LLM` / `DEV_FAKE_EMBEDDINGS` and requires `GEMINI_API_KEY` and `DATABASE_URL`.
-
-Apply Prisma migrations against the same database before traffic:
+Apply migrations to the **same** database the AI service will use:
 
 ```bash
 cd apps/web
 npx prisma migrate deploy
 ```
 
-### Health
+## 1. Fly.io — AI service
 
-`GET https://your-ai-service.example/health` → `{ "status": "ok", "service": "ai-service" }`
+From `apps/ai-service` (this folder already has `Dockerfile` and `fly.toml`):
 
-## After deploy
+```bash
+cd apps/ai-service
+fly launch --no-deploy --copy-config --name academic-research-copilot-ai --region fra
+```
 
-1. Open `/workspace`.
+If the app name is taken, pick another. Note the hostname: `https://<app-name>.fly.dev`.
+
+Set secrets (replace values; do not commit them):
+
+```bash
+fly secrets set \
+  GEMINI_API_KEY="your-gemini-key" \
+  DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require" \
+  CORS_ORIGINS="https://your-app.vercel.app"
+```
+
+Optional: `WEB_SEARCH_API_KEY` for Tavily.
+
+`fly.toml` creates a 1 GB volume at `/data/uploads` on first deploy (`initial_size`). Deploy:
+
+```bash
+fly deploy
+```
+
+Check:
+
+```bash
+curl https://<app-name>.fly.dev/health
+# {"status":"ok","service":"ai-service"}
+```
+
+If the health check fails, `fly logs` and `fly status` show startup errors (missing secret, DB, or port).
+
+## 2. Vercel — web app
+
+1. In the Vercel dashboard: **Add New… → Project** and import `ahmedmsabha/academic-research-copilot`.
+2. Set **Root Directory** to `apps/web` (Vercel monorepo setting). Framework: Next.js.
+3. Environment variable (Production and Preview):
+
+```text
+NEXT_PUBLIC_API_BASE_URL=https://<app-name>.fly.dev
+```
+
+That value is public (API origin, not a secret). It is inlined at build time — change it, then redeploy.
+
+4. Deploy. Your site will be `https://<project>.vercel.app`.
+
+## 3. Wire CORS
+
+After you know the Vercel URL, update Fly:
+
+```bash
+cd apps/ai-service
+fly secrets set CORS_ORIGINS="https://<project>.vercel.app"
+```
+
+No trailing slash. Add more origins as a comma-separated list if you also use a custom domain.
+
+Then confirm `/workspace` can list projects and send a message.
+
+## 4. Smoke test
+
+1. Open `https://<project>.vercel.app/workspace`.
 2. Upload a small synthetic PDF and wait until **Ready for search**.
-3. Ask a document question, a calculator question, and a weather question.
-4. Confirm citations and external-tool labels.
-5. Add the live URL to the README and LinkedIn post.
+3. Ask a document question, `What is 12 * (3 + 4)?`, and a weather or web-search question.
+4. Confirm filename/page citations and **External tool** labels.
+
+## Local Docker Compose (unchanged)
+
+```bash
+cp .env.example .env
+# Set GEMINI_API_KEY
+docker compose up --build
+```
+
+Compose still uses local Postgres + pgvector. `DOCKER_BUILD=1` enables Next.js `output: "standalone"` only in the web Docker image — Vercel does not use standalone.
+
+## After it is live
+
+Put the Vercel URL in the README and LinkedIn draft.
 
 Identity is still the development `X-User-Id` header (browser localStorage). Treat a public demo as shared-device scoped, not multi-tenant production auth.

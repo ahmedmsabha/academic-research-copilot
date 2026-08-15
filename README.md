@@ -166,7 +166,7 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) for a 2–3 minute complete-
 
 ## Deploy
 
-See [`docs/deploy.md`](docs/deploy.md). After the host is live, replace this line with the URL:
+Production: **Vercel** (`apps/web`) + **Fly.io** (`apps/ai-service`) + Prisma Postgres. Step-by-step: [`docs/deploy.md`](docs/deploy.md).
 
 **Live application:** _add after deploy_
 

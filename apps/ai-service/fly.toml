@@ -1,0 +1,46 @@
+# Fly.io config for the FastAPI AI service.
+# Deploy from this directory: `fly launch` then `fly deploy`.
+# Secrets (GEMINI_API_KEY, DATABASE_URL, CORS_ORIGINS) stay out of this file.
+
+app = "academic-research-copilot-ai"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  PORT = "8000"
+  STORAGE_PROVIDER = "local"
+  STORAGE_LOCAL_ROOT = "/data/uploads"
+  DEV_FAKE_LLM = "false"
+  DEV_FAKE_EMBEDDINGS = "false"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 50
+
+[[http_service.checks]]
+  grace_period = "20s"
+  interval = "15s"
+  method = "GET"
+  timeout = "5s"
+  path = "/health"
+
+[mounts]
+  source = "uploads"
+  destination = "/data/uploads"
+  initial_size = "1gb"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
