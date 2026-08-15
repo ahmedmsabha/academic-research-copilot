@@ -1,28 +1,25 @@
 # Deploy
 
-Production target: **Vercel** for `apps/web`, **Fly.io** for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
+Production target: **Vercel** for `apps/web`, **Render** (free) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
+
+No Fly.io CLI. Railway is a paid/trial host — use Render’s free web service instead.
 
 Secrets stay server-side. Never put API keys or `DATABASE_URL` in `NEXT_PUBLIC_*` variables.
 
 ```text
-Browser  →  Vercel (Next.js)  →  Fly.io (FastAPI)
+Browser  →  Vercel (Next.js)  →  Render (FastAPI, free)
                                       │
-                                      ├─ Prisma Postgres + pgvector
-                                      └─ Fly volume  /data/uploads  (PDFs)
+                                      └─ Prisma Postgres + pgvector
 ```
+
+Free Render instances sleep after idle time. The first request after sleep can take ~30–60 seconds. Uploaded PDF files live on the instance disk and can disappear after a sleep or redeploy; chat history and embeddings stay in Prisma Postgres. Re-upload a demo PDF if search stops finding the file.
 
 ## 0. Prerequisites
 
 - [Vercel](https://vercel.com) account connected to GitHub
-- [Fly.io](https://fly.io) account and the [flyctl](https://fly.io/docs/flyctl/install/) CLI
+- [Render](https://render.com) account connected to GitHub
 - Existing Prisma Postgres URL (`DATABASE_URL`) with the `vector` extension
 - `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
-
-Install flyctl and log in:
-
-```bash
-fly auth login
-```
 
 Apply migrations to the **same** database the AI service will use:
 
@@ -31,51 +28,55 @@ cd apps/web
 npx prisma migrate deploy
 ```
 
-## 1. Fly.io — AI service
+## 1. Render — AI service (free)
 
-From `apps/ai-service` (this folder already has `Dockerfile` and `fly.toml`):
+1. Open [dashboard.render.com](https://dashboard.render.com) → **New → Web Service**.
+2. Connect `ahmedmsabha/academic-research-copilot`.
+3. Settings:
 
-```bash
-cd apps/ai-service
-fly launch --no-deploy --copy-config --name academic-research-copilot-ai --region fra
+   | Field | Value |
+   |---|---|
+   | Root Directory | `apps/ai-service` |
+   | Runtime | Docker |
+   | Instance type | **Free** |
+   | Health check path | `/health` |
+
+4. Environment variables:
+
+```text
+APP_ENV=production
+STORAGE_PROVIDER=local
+STORAGE_LOCAL_ROOT=/data/uploads
+DEV_FAKE_LLM=false
+DEV_FAKE_EMBEDDINGS=false
+GEMINI_API_KEY=your-gemini-key
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+CORS_ORIGINS=https://your-app.vercel.app
 ```
 
-If the app name is taken, pick another. Note the hostname: `https://<app-name>.fly.dev`.
+You can set `CORS_ORIGINS` to a placeholder and fix it after Vercel is live. No trailing slash.
 
-Set secrets (replace values; do not commit them):
+5. Deploy. The URL looks like `https://academic-research-copilot-ai.onrender.com`.
 
-```bash
-fly secrets set \
-  GEMINI_API_KEY="your-gemini-key" \
-  DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require" \
-  CORS_ORIGINS="https://your-app.vercel.app"
-```
-
-Optional: `WEB_SEARCH_API_KEY` for Tavily.
-
-`fly.toml` creates a 1 GB volume at `/data/uploads` on first deploy (`initial_size`). Deploy:
+6. After the first deploy finishes (it can take several minutes):
 
 ```bash
-fly deploy
-```
-
-Check:
-
-```bash
-curl https://<app-name>.fly.dev/health
+curl https://<service>.onrender.com/health
 # {"status":"ok","service":"ai-service"}
 ```
 
-If the health check fails, `fly logs` and `fly status` show startup errors (missing secret, DB, or port).
+If that fails, open the service **Logs** on Render. A missing `GEMINI_API_KEY` or `DATABASE_URL` stops production startup.
+
+Alternatively, **New → Blueprint** and select this repo (`render.yaml`). You still type the three secrets in the dashboard.
 
 ## 2. Vercel — web app
 
-1. In the Vercel dashboard: **Add New… → Project** and import `ahmedmsabha/academic-research-copilot`.
-2. Set **Root Directory** to `apps/web` (Vercel monorepo setting). Framework: Next.js.
+1. [vercel.com](https://vercel.com) → **Add New… → Project** → import `ahmedmsabha/academic-research-copilot`.
+2. **Root Directory:** `apps/web`. Framework: Next.js.
 3. Environment variable (Production and Preview):
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://<app-name>.fly.dev
+NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com
 ```
 
 That value is public (API origin, not a secret). It is inlined at build time — change it, then redeploy.
@@ -84,20 +85,17 @@ That value is public (API origin, not a secret). It is inlined at build time —
 
 ## 3. Wire CORS
 
-After you know the Vercel URL, update Fly:
+On the Render service → **Environment**, set:
 
-```bash
-cd apps/ai-service
-fly secrets set CORS_ORIGINS="https://<project>.vercel.app"
+```text
+CORS_ORIGINS=https://<project>.vercel.app
 ```
 
-No trailing slash. Add more origins as a comma-separated list if you also use a custom domain.
-
-Then confirm `/workspace` can list projects and send a message.
+Save (Render restarts the service). Then open `/workspace` and send a message.
 
 ## 4. Smoke test
 
-1. Open `https://<project>.vercel.app/workspace`.
+1. Open `https://<project>.vercel.app/workspace` (wait if Render is waking up).
 2. Upload a small synthetic PDF and wait until **Ready for search**.
 3. Ask a document question, `What is 12 * (3 + 4)?`, and a weather or web-search question.
 4. Confirm filename/page citations and **External tool** labels.
@@ -110,7 +108,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose still uses local Postgres + pgvector. `DOCKER_BUILD=1` enables Next.js `output: "standalone"` only in the web Docker image — Vercel does not use standalone.
+`DOCKER_BUILD=1` enables Next.js `output: "standalone"` only in the web Docker image — Vercel does not use standalone.
 
 ## After it is live
 

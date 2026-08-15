@@ -1,0 +1,30 @@
+# Render Blueprint — free FastAPI AI service.
+# Dashboard: New → Blueprint → this repo. Or create a Web Service and point at apps/ai-service.
+# Set GEMINI_API_KEY, DATABASE_URL, and CORS_ORIGINS in the dashboard (sync: false).
+
+services:
+  - type: web
+    name: academic-research-copilot-ai
+    runtime: docker
+    plan: free
+    region: frankfurt
+    rootDir: apps/ai-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: STORAGE_PROVIDER
+        value: local
+      - key: STORAGE_LOCAL_ROOT
+        value: /data/uploads
+      - key: DEV_FAKE_LLM
+        value: "false"
+      - key: DEV_FAKE_EMBEDDINGS
+        value: "false"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
