@@ -166,7 +166,7 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) for a 2–3 minute complete-
 
 ## Deploy
 
-Production: two **Vercel Hobby** projects from this repo — `apps/web` (Next.js) and `apps/ai-service` (FastAPI) — plus Prisma Postgres. Step-by-step: [`docs/deploy.md`](docs/deploy.md).
+Production: two **Dokploy** apps on a VPS — `apps/web` (Next.js) and `apps/ai-service` (FastAPI) — plus Prisma Postgres. Step-by-step: [`docs/deploy.md`](docs/deploy.md).
 
 **Live application:** _add after deploy_
 
