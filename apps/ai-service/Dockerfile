@@ -1,16 +1,22 @@
 FROM python:3.12-slim
 
-WORKDIR /app
-
-RUN apt-get update \
+# Hugging Face Docker Spaces expect uid 1000. Local Compose still works.
+RUN useradd -m -u 1000 user \
+  && apt-get update \
   && apt-get install -y --no-install-recommends curl \
   && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
 
 COPY pyproject.toml ./
 COPY app ./app
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . \
+  && mkdir -p /data/uploads \
+  && chown -R user:user /app /data /home/user
 
+USER user
+ENV HOME=/home/user
 ENV PORT=8000
 EXPOSE 8000
 

@@ -1,23 +1,23 @@
 # Deploy
 
-Production target: **Vercel** for `apps/web`, **Render** (free) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
+Production target: **Vercel** for `apps/web`, **Hugging Face Spaces** (free Docker, no credit card) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
 
-No Fly.io CLI. Railway is a paid/trial host — use Render’s free web service instead.
+Render, Railway, and Fly.io all ask for a card now. A Hugging Face account is email-only.
 
 Secrets stay server-side. Never put API keys or `DATABASE_URL` in `NEXT_PUBLIC_*` variables.
 
 ```text
-Browser  →  Vercel (Next.js)  →  Render (FastAPI, free)
+Browser  →  Vercel (Next.js)  →  Hugging Face Space (FastAPI)
                                       │
                                       └─ Prisma Postgres + pgvector
 ```
 
-Free Render instances sleep after idle time. The first request after sleep can take ~30–60 seconds. Uploaded PDF files live on the instance disk and can disappear after a sleep or redeploy; chat history and embeddings stay in Prisma Postgres. Re-upload a demo PDF if search stops finding the file.
+Free Spaces sleep when idle. The first request after sleep can take about a minute. Uploaded PDF files on the Space disk can disappear after a restart; chat history and embeddings stay in Prisma Postgres. Re-upload a demo PDF if search stops finding the file.
 
 ## 0. Prerequisites
 
 - [Vercel](https://vercel.com) account connected to GitHub
-- [Render](https://render.com) account connected to GitHub
+- [Hugging Face](https://huggingface.co/join) account (free)
 - Existing Prisma Postgres URL (`DATABASE_URL`) with the `vector` extension
 - `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
 
@@ -28,46 +28,50 @@ cd apps/web
 npx prisma migrate deploy
 ```
 
-## 1. Render — AI service (free)
+## 1. Hugging Face Space — AI service (free, no card)
 
-1. Open [dashboard.render.com](https://dashboard.render.com) → **New → Web Service**.
-2. Connect `ahmedmsabha/academic-research-copilot`.
-3. Settings:
+1. Open [huggingface.co/new-space](https://huggingface.co/new-space).
+2. Create the Space:
 
    | Field | Value |
    |---|---|
-   | Root Directory | `apps/ai-service` |
-   | Runtime | Docker |
-   | Instance type | **Free** |
-   | Health check path | `/health` |
+   | Space name | `academic-research-copilot-ai` (or any free name) |
+   | SDK | **Docker** |
+   | Hardware | **CPU basic** (free) |
+   | Visibility | Public (needed so the Vercel app can call it) |
 
-4. Environment variables:
+3. Space settings → **Variables and secrets** → add **secrets** (not regular variables):
 
 ```text
 APP_ENV=production
+GEMINI_API_KEY=your-gemini-key
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+CORS_ORIGINS=https://your-app.vercel.app
 STORAGE_PROVIDER=local
 STORAGE_LOCAL_ROOT=/data/uploads
 DEV_FAKE_LLM=false
 DEV_FAKE_EMBEDDINGS=false
-GEMINI_API_KEY=your-gemini-key
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
-CORS_ORIGINS=https://your-app.vercel.app
 ```
 
 You can set `CORS_ORIGINS` to a placeholder and fix it after Vercel is live. No trailing slash.
 
-5. Deploy. The URL looks like `https://academic-research-copilot-ai.onrender.com`.
-
-6. After the first deploy finishes (it can take several minutes):
+4. From your machine, log in and upload **only** `apps/ai-service` (the Space repo must have `Dockerfile` at its root):
 
 ```bash
-curl https://<service>.onrender.com/health
+pip install -U huggingface_hub
+huggingface-cli login
+cd apps/ai-service
+huggingface-cli upload YOUR_HF_USERNAME/academic-research-copilot-ai . . --repo-type space
+```
+
+5. Open the Space page and wait until the build is **Running**. Then:
+
+```bash
+curl https://YOUR_HF_USERNAME-academic-research-copilot-ai.hf.space/health
 # {"status":"ok","service":"ai-service"}
 ```
 
-If that fails, open the service **Logs** on Render. A missing `GEMINI_API_KEY` or `DATABASE_URL` stops production startup.
-
-Alternatively, **New → Blueprint** and select this repo (`render.yaml`). You still type the three secrets in the dashboard.
+The public API host is `https://<user>-<space>.hf.space` (hyphens, not slashes). If health fails, open the Space **Logs** tab.
 
 ## 2. Vercel — web app
 
@@ -76,7 +80,7 @@ Alternatively, **New → Blueprint** and select this repo (`render.yaml`). You s
 3. Environment variable (Production and Preview):
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com
+NEXT_PUBLIC_API_BASE_URL=https://YOUR_HF_USERNAME-academic-research-copilot-ai.hf.space
 ```
 
 That value is public (API origin, not a secret). It is inlined at build time — change it, then redeploy.
@@ -85,17 +89,17 @@ That value is public (API origin, not a secret). It is inlined at build time —
 
 ## 3. Wire CORS
 
-On the Render service → **Environment**, set:
+In the Space **Secrets**, set:
 
 ```text
 CORS_ORIGINS=https://<project>.vercel.app
 ```
 
-Save (Render restarts the service). Then open `/workspace` and send a message.
+Restart the Space if it does not pick up the change. Then open `/workspace` and send a message.
 
 ## 4. Smoke test
 
-1. Open `https://<project>.vercel.app/workspace` (wait if Render is waking up).
+1. Open `https://<project>.vercel.app/workspace` (wait if the Space is waking up).
 2. Upload a small synthetic PDF and wait until **Ready for search**.
 3. Ask a document question, `What is 12 * (3 + 4)?`, and a weather or web-search question.
 4. Confirm filename/page citations and **External tool** labels.
@@ -107,8 +111,6 @@ cp .env.example .env
 # Set GEMINI_API_KEY
 docker compose up --build
 ```
-
-`DOCKER_BUILD=1` enables Next.js `output: "standalone"` only in the web Docker image — Vercel does not use standalone.
 
 ## After it is live
 
