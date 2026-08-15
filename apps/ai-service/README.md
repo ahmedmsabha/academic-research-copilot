@@ -3,15 +3,15 @@ title: Academic Research Copilot AI
 emoji: 📚
 colorFrom: green
 colorTo: gray
-sdk: docker
-app_port: 8000
+sdk: gradio
+app_file: app.py
 pinned: false
 short_description: FastAPI research assistant API (chat, RAG, tools, Prompt Lab)
 ---
 
 # AI Service
 
-FastAPI backend for Academic Research Copilot. This README’s YAML block is for a free [Hugging Face Docker Space](https://huggingface.co/docs/hub/spaces-sdks-docker) (no credit card).
+FastAPI backend for Academic Research Copilot. Hugging Face **Docker** Spaces are paid; this README uses the free **Gradio** SDK. `app.py` serves the same FastAPI app (`/health`, `/api/v1`) on the Space.
 
 ## Task 4 (includes Tasks 1–3)
 

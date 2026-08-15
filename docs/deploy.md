@@ -1,13 +1,13 @@
 # Deploy
 
-Production target: **Vercel** for `apps/web`, **Hugging Face Spaces** (free Docker, no credit card) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
+Production target: **Vercel** for `apps/web`, **Hugging Face Gradio Space** (free, no credit card) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
 
-Render, Railway, and Fly.io all ask for a card now. A Hugging Face account is email-only.
+Hugging Face **Docker** Spaces are paid. **Gradio** Spaces are free. The Space still runs FastAPI: Gradio is only the free runtime. The Vercel app calls `/health` and `/api/v1` on the Space URL.
 
 Secrets stay server-side. Never put API keys or `DATABASE_URL` in `NEXT_PUBLIC_*` variables.
 
 ```text
-Browser  →  Vercel (Next.js)  →  Hugging Face Space (FastAPI)
+Browser  →  Vercel (Next.js)  →  Hugging Face Gradio Space (FastAPI + status page)
                                       │
                                       └─ Prisma Postgres + pgvector
 ```
@@ -17,7 +17,7 @@ Free Spaces sleep when idle. The first request after sleep can take about a minu
 ## 0. Prerequisites
 
 - [Vercel](https://vercel.com) account connected to GitHub
-- [Hugging Face](https://huggingface.co/join) account (free)
+- [Hugging Face](https://huggingface.co/join) account (free, no card)
 - Existing Prisma Postgres URL (`DATABASE_URL`) with the `vector` extension
 - `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
 
@@ -28,7 +28,7 @@ cd apps/web
 npx prisma migrate deploy
 ```
 
-## 1. Hugging Face Space — AI service (free, no card)
+## 1. Hugging Face Space — AI service (Gradio, free)
 
 1. Open [huggingface.co/new-space](https://huggingface.co/new-space).
 2. Create the Space:
@@ -36,11 +36,13 @@ npx prisma migrate deploy
    | Field | Value |
    |---|---|
    | Space name | `academic-research-copilot-ai` (or any free name) |
-   | SDK | **Docker** |
+   | SDK | **Gradio** (not Docker — Docker is paid) |
    | Hardware | **CPU basic** (free) |
-   | Visibility | Public (needed so the Vercel app can call it) |
+   | Visibility | Public (so the Vercel app can call it) |
 
-3. Space settings → **Variables and secrets** → add **secrets** (not regular variables):
+   If the wizard asks for a Gradio template, pick a blank / default one. We overwrite the files in step 4.
+
+3. Space settings → **Variables and secrets** → add **secrets**:
 
 ```text
 APP_ENV=production
@@ -55,7 +57,7 @@ DEV_FAKE_EMBEDDINGS=false
 
 You can set `CORS_ORIGINS` to a placeholder and fix it after Vercel is live. No trailing slash.
 
-4. From your machine, log in and upload **only** `apps/ai-service` (the Space repo must have `Dockerfile` at its root):
+4. Upload **only** `apps/ai-service` (the Space root must contain `app.py`, `requirements.txt`, and `app/`):
 
 ```bash
 pip install -U huggingface_hub
@@ -64,14 +66,14 @@ cd apps/ai-service
 huggingface-cli upload YOUR_HF_USERNAME/academic-research-copilot-ai . . --repo-type space
 ```
 
-5. Open the Space page and wait until the build is **Running**. Then:
+5. Wait until the Space is **Running**. Then:
 
 ```bash
 curl https://YOUR_HF_USERNAME-academic-research-copilot-ai.hf.space/health
 # {"status":"ok","service":"ai-service"}
 ```
 
-The public API host is `https://<user>-<space>.hf.space` (hyphens, not slashes). If health fails, open the Space **Logs** tab.
+The public API host is `https://<user>-<space>.hf.space`. The Gradio status page is the Space UI; the API is on the same host. If health fails, open the Space **Logs** tab.
 
 ## 2. Vercel — web app
 

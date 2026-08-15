@@ -166,7 +166,7 @@ Follow [`docs/demo-script.md`](docs/demo-script.md) for a 2–3 minute complete-
 
 ## Deploy
 
-Production: **Vercel** (`apps/web`) + **Hugging Face Spaces** free Docker (`apps/ai-service`, no credit card) + Prisma Postgres. Step-by-step: [`docs/deploy.md`](docs/deploy.md).
+Production: **Vercel** (`apps/web`) + **Hugging Face Gradio Space** (`apps/ai-service`, free, no credit card) + Prisma Postgres. Step-by-step: [`docs/deploy.md`](docs/deploy.md).
 
 **Live application:** _add after deploy_
 
