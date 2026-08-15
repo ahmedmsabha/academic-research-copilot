@@ -1,23 +1,21 @@
 # Deploy
 
-Production target: **Vercel** for `apps/web`, **Hugging Face Gradio Space** (free, no credit card) for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
+Production target: **Vercel** for `apps/web`, **Railway** for `apps/ai-service`, **Prisma Postgres** (pgvector) for the database.
 
-Hugging Face **Docker** Spaces are paid. **Gradio** Spaces are free. The Space still runs FastAPI: Gradio is only the free runtime. The Vercel app calls `/health` and `/api/v1` on the Space URL.
+This repo is a monorepo. Railway does not need a separate GitHub repo. You import the same repo and set the service **Root Directory** to `apps/ai-service`.
 
 Secrets stay server-side. Never put API keys or `DATABASE_URL` in `NEXT_PUBLIC_*` variables.
 
 ```text
-Browser  →  Vercel (Next.js)  →  Hugging Face Gradio Space (FastAPI + status page)
+Browser  →  Vercel (Next.js)  →  Railway (FastAPI)
                                       │
                                       └─ Prisma Postgres + pgvector
 ```
 
-Free Spaces sleep when idle. The first request after sleep can take about a minute. Uploaded PDF files on the Space disk can disappear after a restart; chat history and embeddings stay in Prisma Postgres. Re-upload a demo PDF if search stops finding the file.
-
 ## 0. Prerequisites
 
 - [Vercel](https://vercel.com) account connected to GitHub
-- [Hugging Face](https://huggingface.co/join) account (free, no card)
+- [Railway](https://railway.com) account connected to GitHub
 - Existing Prisma Postgres URL (`DATABASE_URL`) with the `vector` extension
 - `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)
 
@@ -28,21 +26,26 @@ cd apps/web
 npx prisma migrate deploy
 ```
 
-## 1. Hugging Face Space — AI service (Gradio, free)
+## 1. Railway — AI service (monorepo)
 
-1. Open [huggingface.co/new-space](https://huggingface.co/new-space).
-2. Create the Space:
+Railway treats each **service** as one app. The GitHub repo stays one repo.
 
-   | Field | Value |
+1. Open [railway.com/new](https://railway.com/new) → **Deploy from GitHub repo**.
+2. Select `academic-research-copilot`.
+3. If Railway tries to deploy the whole repo or the Next.js app, that is fine — you will isolate the backend next. Prefer **Add a service → GitHub repo** so you have one service for the API only.
+4. Open that service → **Settings**:
+
+   | Setting | Value |
    |---|---|
-   | Space name | `academic-research-copilot-ai` (or any free name) |
-   | SDK | **Gradio** (not Docker — Docker is paid) |
-   | Hardware | **CPU basic** (free) |
-   | Visibility | Public (so the Vercel app can call it) |
+   | Root Directory | `/apps/ai-service` |
+   | Config File Path | `/apps/ai-service/railway.toml` |
+   | Watch Paths | `/apps/ai-service/**` |
 
-   If the wizard asks for a Gradio template, pick a blank / default one. We overwrite the files in step 4.
+   Root Directory tells Railway to build only `apps/ai-service` (Dockerfile, `app/`, `pyproject.toml`). Web and docs changes will not rebuild the API if Watch Paths are set.
 
-3. Space settings → **Variables and secrets** → add **secrets**:
+   The config file path is **absolute from the repo root**. Railway does not look inside Root Directory for `railway.toml`.
+
+5. **Variables** (service → Variables). Do not create a Railway Postgres for this app — keep Prisma Postgres (pgvector):
 
 ```text
 APP_ENV=production
@@ -55,34 +58,31 @@ DEV_FAKE_LLM=false
 DEV_FAKE_EMBEDDINGS=false
 ```
 
+Railway injects `PORT`. The Dockerfile already listens on `$PORT`. Do not put `GEMINI_API_KEY` or `DATABASE_URL` on Vercel.
+
 You can set `CORS_ORIGINS` to a placeholder and fix it after Vercel is live. No trailing slash.
 
-4. Upload **only** `apps/ai-service` (the Space root must contain `app.py`, `requirements.txt`, and `app/`):
+6. Deploy. Generate a public domain: service → **Settings → Networking → Generate domain**.
+
+7. Check:
 
 ```bash
-pip install -U huggingface_hub
-huggingface-cli login
-cd apps/ai-service
-huggingface-cli upload YOUR_HF_USERNAME/academic-research-copilot-ai . . --repo-type space
-```
-
-5. Wait until the Space is **Running**. Then:
-
-```bash
-curl https://YOUR_HF_USERNAME-academic-research-copilot-ai.hf.space/health
+curl https://<your-service>.up.railway.app/health
 # {"status":"ok","service":"ai-service"}
 ```
 
-The public API host is `https://<user>-<space>.hf.space`. The Gradio status page is the Space UI; the API is on the same host. If health fails, open the Space **Logs** tab.
+If the deploy fails, open the service **Deployments → Logs**. A missing `GEMINI_API_KEY` or `DATABASE_URL` stops production startup.
+
+`apps/ai-service/railway.toml` sets the Docker builder and `/health` check. After you push it, Railway reads it from `/apps/ai-service/railway.toml`.
 
 ## 2. Vercel — web app
 
-1. [vercel.com](https://vercel.com) → **Add New… → Project** → import `ahmedmsabha/academic-research-copilot`.
+1. [vercel.com](https://vercel.com) → **Add New… → Project** → import the **same** GitHub repo.
 2. **Root Directory:** `apps/web`. Framework: Next.js.
 3. Environment variable (Production and Preview):
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=https://YOUR_HF_USERNAME-academic-research-copilot-ai.hf.space
+NEXT_PUBLIC_API_BASE_URL=https://<your-service>.up.railway.app
 ```
 
 That value is public (API origin, not a secret). It is inlined at build time — change it, then redeploy.
@@ -91,17 +91,17 @@ That value is public (API origin, not a secret). It is inlined at build time —
 
 ## 3. Wire CORS
 
-In the Space **Secrets**, set:
+On Railway → Variables, set:
 
 ```text
 CORS_ORIGINS=https://<project>.vercel.app
 ```
 
-Restart the Space if it does not pick up the change. Then open `/workspace` and send a message.
+Railway restarts the service. Then open `/workspace` and send a message.
 
 ## 4. Smoke test
 
-1. Open `https://<project>.vercel.app/workspace` (wait if the Space is waking up).
+1. Open `https://<project>.vercel.app/workspace`.
 2. Upload a small synthetic PDF and wait until **Ready for search**.
 3. Ask a document question, `What is 12 * (3 + 4)?`, and a weather or web-search question.
 4. Confirm filename/page citations and **External tool** labels.

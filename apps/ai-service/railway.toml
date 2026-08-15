@@ -1,0 +1,14 @@
+# Railway config for the FastAPI AI service.
+# In the Railway dashboard, set this service Root Directory to /apps/ai-service
+# and Config File Path to /apps/ai-service/railway.toml (absolute from the repo root).
+# Railway config files do not follow the Root Directory setting.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["**"]
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
