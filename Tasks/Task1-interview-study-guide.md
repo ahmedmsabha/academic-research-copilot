@@ -1,194 +1,173 @@
 # Task 1 interview study guide
 
-Academic Research Copilot — first AI chatbot. Memorize the pitch, then the request path, then the “why” behind each decision. Later tasks (RAG, tools, Prompt Lab) sit on this same chat pipeline; they are not Task 1.
+Academic Research Copilot — first LLM chatbot. This guide is the **AI conversation layer**: how a language model is called, what context it sees, why it hallucinates, and how you keep secrets and errors user-safe. Later tasks (RAG, tools, Prompt Lab) sit on this same generate path; they are not Task 1.
 
 ## 30-second pitch — say this first
 
-I built a research chatbot where the browser never talks to Gemini. Next.js renders the chat UI; FastAPI owns the Gemini call, conversation persistence in Postgres, and user-safe errors. Secrets stay on the server. Tests use a fake LLM so CI never hits a paid API.
+I built a research chatbot around a Large Language Model. The browser never talks to Gemini. FastAPI owns the generate call, maps chat roles into Gemini contents, sends a separate system instruction, and caps history at the last 40 turns so the context window stays bounded. Secrets stay on the server. Tests use a fake LLM so CI never hits a paid API.
 
 
 |                  |                           |
 | ---------------- | ------------------------- |
 | Task 1 demo page | `/chat`                   |
 | Pinned route     | `mode=llm`                |
-| LLM              | Gemini via `google-genai` |
-| Durable history  | Postgres                  |
-
-
+| Model            | Gemini via `google-genai` |
+| Context window   | Last 40 user/assistant turns |
 
 
 ## What Task 1 is (and is not)
 
 
-| Requirement          | What this app does                                            | Do not claim in Task 1                                 |
+| AI requirement       | What this app does                                            | Do not claim in Task 1                                 |
 | -------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
-| Integrate an LLM API | `GeminiLLMProvider` in `apps/ai-service/app/providers/llm.py` | Browser fetch to Google; OpenAI/Claude SDKs            |
-| Simple chat UI       | `ChatPanel` + `ChatComposer` + `MessageList` on `/chat`       | Workspace sidebar, PDF panel, Prompt Lab               |
-| Conversation history | GET/POST messages; last 40 turns sent to Gemini               | Token-budget summarization or streaming replay         |
-| Loading indicator    | `sending` + “Generating response…” bubble                     | SSE token streaming (not implemented)                  |
-| Graceful API errors  | RFC 7807-style `{ error: { code, message, request_id } }`     | Stack traces, raw Gemini exceptions                    |
-| Project structure    | Monorepo: `apps/web` (Next.js) + `apps/ai-service` (FastAPI)  | A single Next.js API route that holds `GEMINI_API_KEY` |
+| Integrate an LLM API | `GeminiLLMProvider` wraps generate; system prompt + history   | Browser fetch to Google; OpenAI/Claude SDKs            |
+| Conversational AI    | Multi-turn messages persisted; last 40 sent as model context  | Token-budget summarization, memory, or streaming replay |
+| Grounding later      | Task 1 is **parametric** knowledge only — the model’s weights | Document retrieval, citations, or tools                |
+| Safe generation      | Empty model text is treated as provider failure, not an answer | Persisting blank assistant turns                       |
+| Testable LLM         | `LLMProvider` Protocol + `FakeLLMProvider`                    | Live Gemini in pytest                                  |
 
 
 
 
-## Request path you must be able to draw
+## AI concepts you must be able to explain
 
-Browser `ChatPanel` → typed client `lib/api.ts` → same-origin Next.js proxy `app/api/v1/[...path]` → FastAPI `POST /api/v1/conversations/{id}/messages` → `ChatService.send_message` → `select_route(preferred=llm)` returns immediately → `_answer_with_llm` → `GeminiLLMProvider.generate` → persist assistant message → JSON back to the UI.
+### What an LLM actually does
 
+A Large Language Model predicts the next token given a prompt. It does **not** look up your Postgres rows, run Python, or “know” the user’s PDF. Everything it can use in Task 1 is:
 
-| Step | Layer         | File                            | What happens                                                                     |
-| ---- | ------------- | ------------------------------- | -------------------------------------------------------------------------------- |
-| 1    | UI            | `ChatComposer.tsx`              | Trim text. Block blank. Enter sends, Shift+Enter newline. Disable while sending. |
-| 2    | UI state      | `ChatPanel.tsx`                 | Optimistic user bubble. `loadingStatus` = Generating response…                   |
-| 3    | Client        | `lib/api.ts`                    | POST JSON `{ content, mode: "llm" }` with `X-User-Id` from localStorage.         |
-| 4    | Proxy         | `app/api/v1/[...path]/route.ts` | Forwards to FastAPI. `API_BASE_URL` is server-only. 60s `maxDuration`.           |
-| 5    | Auth          | `core/security.py`              | `require_user_id`. Missing/invalid header → `401 UNAUTHORIZED`.                  |
-| 6    | Validate      | `schemas.py` + `ChatService`    | Pydantic `min_length` + strip. Max 8000 chars. Blank → `422`.                    |
-| 7    | Persist user  | `postgres_store.py`             | `append_message` user row first. Optional retitle from first question.           |
-| 8    | Route         | `agent/router.py`               | `preferred=llm` is pinned. No calculator, weather, search, or RAG.               |
-| 9    | LLM           | `providers/llm.py`              | Map history to Gemini contents. `system_instruction` separate. Timeout 30s.      |
-| 10   | Persist reply | `ChatService._answer_with_llm`  | Save assistant text, `route=llm`, `status=Generating response`, provider, model. |
+1. **Parametric knowledge** — facts compressed into weights during pretraining (can be stale or wrong).
+2. **In-context tokens** — the system instruction plus the last 40 chat turns you send on this request.
 
+If a fact is not in those two places, a fluent answer is still a guess. That is why Task 2 adds retrieval and Task 3 adds tools.
 
+### Tokens, context window, and history
 
+Gemini (and every chat API) has a finite **context window**. We do not send the whole `messages` table.
 
-## Architecture decisions — say the “why”
-
-
-
-### Why Gemini is never called from the browser
-
-`GEMINI_API_KEY` would leak in `NEXT_PUBLIC_*` / Network tab. The backend also enforces length limits, owner-scoped history, and maps provider failures to safe codes. The frontend only calls `/api/v1`.
-
-### Why `LLMProvider` is a Protocol
-
-`GeminiLLMProvider` wraps `google-genai`. `FakeLLMProvider` records calls and returns a fixed string. Pytest never spends quota. Same `ChatService` in prod and tests — only the adapter changes.
-
-### Why Prisma and SQLAlchemy both exist
-
-Prisma in `apps/web` owns schema and migrations. FastAPI SQLAlchemy (`ProjectRow`, `ConversationRow`, `MessageRow`) owns runtime chat writes. One Postgres, two clients. Do not say “Prisma Client generates the replies.”
-
-### Why `/chat` pins `mode=llm`
-
-`ChatService` later grew RAG and tools. Task 1’s page still sends `mode=llm` so the interviewer sees a plain chatbot. `select_route` short-circuits on pinned routes (`source=preferred`) and never classifies the question.
-
-## History, identity, and isolation
-
-Two kinds of “history” exist. Do not mix them in the interview.
-
-
-| Kind                 | Where                                                    | Purpose                                                                                |
+| Kind                 | Where                                                    | AI purpose                                                                             |
 | -------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Durable messages     | Postgres `messages` table                                | Survive refresh. `GET /conversations/{id}/messages`. Ordered by `created_at`, then id. |
-| Session pointers     | localStorage `arc.projectId` + `arc.conversationId.chat` | Reopen the same project/conversation in this browser. Not the transcript.              |
-| Model context window | `Settings.max_history_messages = 40`                     | Only the last 40 user/assistant turns are sent to Gemini. Older rows stay in DB.       |
-| Dev identity         | `X-User-Id` header; localStorage `arc.userId`            | Until real auth. Owner-scoped queries. Other user’s conversation → 404, not 403.       |
+| Durable messages     | Postgres `messages`                                      | Product history. Survive refresh. Not automatically in the model.                      |
+| Model context        | `Settings.max_history_messages = 40`                     | Only the last 40 user/assistant turns become Gemini contents. Older rows stay in DB.   |
+| Session pointers     | localStorage ids                                         | Which conversation to reopen. Not the transcript and not tokens.                       |
 
 
-**404 not 403.** If Bob asks for Alice’s conversation, the API returns Conversation not found (`NOT_FOUND`). That avoids leaking that the id exists. Isolation is tested in `test_project_isolation` and `test_list_conversations_is_owner_scoped`.
+**Say this:** persistence and context are different. The database can hold 400 turns; the model only sees 40. That is a sliding window, not summarization. If they ask how to scale, say: summarize older turns into a short memory, or retrieve relevant past turns — neither is shipped.
 
-## Gemini mapping details interviewers love
+### Roles: system vs user vs model
+
+Interviewers love the mapping because it shows you understand the API, not just “I called Gemini.”
 
 
 | App concept              | Gemini API fact                                                |
 | ------------------------ | -------------------------------------------------------------- |
+| `role: user`             | Stays `user`                                                   |
 | `role: assistant`        | Mapped to `role: model` in `history_to_gemini_contents`        |
-| System prompt            | `GenerateContentConfig.system_instruction` — not a chat turn   |
-| Empty / whitespace turns | Skipped so Gemini does not get blank parts                     |
+| System prompt            | `GenerateContentConfig.system_instruction` — **not** a chat turn |
+| Empty / whitespace turns | Skipped so the model does not get blank parts                  |
 | Empty model text         | `ProviderUnavailableError` — do not persist an empty assistant |
-| Timeout / 429 / bad key  | Mapped to 504 / 503 with user-safe messages                    |
-| Default model            | `gemini-flash-lite-latest` via `LLM_MODEL`                     |
-| Timeout                  | `LLM_TIMEOUT_MS = 30000`, passed as `HttpOptions.timeout`      |
 
 
-System instruction: Academic Research Copilot for students/researchers. Be clear. Do not invent citations or claim private documents unless they are in the conversation. (RAG has a stricter prompt — that is Task 2.)
+System instruction in Task 1: Academic Research Copilot for students/researchers. Be clear. Do not invent citations or claim private documents unless they are already in the conversation. (RAG has a stricter grounded prompt — that is Task 2.)
 
-## Error handling — codes to recite
+### Why the model is never called from the browser
+
+`GEMINI_API_KEY` would leak in `NEXT_PUBLIC_*` / the Network tab. The backend also:
+
+- Enforces length limits (8,000 characters) so a single prompt cannot blow the window.
+- Scopes history to the conversation owner.
+- Classifies provider failures (timeout, 429, bad key, empty text) into safe codes.
+
+The frontend only calls `/api/v1`. Same rule for embeddings and tools later.
+
+### Why `LLMProvider` is a Protocol
+
+Generation is I/O behind a stable interface. `GeminiLLMProvider` wraps `google-genai`. `FakeLLMProvider` records calls and returns a fixed string. Pytest never spends quota or waits on a nondeterministic model. Same `ChatService` in prod and tests — only the adapter changes. This is how you unit-test AI products without paying for tokens.
+
+### Temperature, determinism, and why tests fake the model
+
+Live Gemini is **stochastic**: the same prompt can yield different wording. CI cannot assert exact prose. We assert **contracts** instead: HTTP 201, `route=llm`, two messages in history, and that a boom provider becomes 503 with no traceback. Role mapping is a pure unit test.
+
+### Hallucination (Task 1 version)
+
+Without documents, the model will still answer confidently. Task 1 mitigates lightly: the system prompt forbids invented citations. It does **not** stop the model from using training-data trivia. Strict grounding is Task 2. Do not claim Task 1 is “hallucination-proof.”
+
+## Request path (so you can still whiteboard it)
+
+Browser `ChatPanel` → typed client → Next.js proxy → FastAPI `POST /conversations/{id}/messages` → `ChatService.send_message` → `select_route(preferred=llm)` → `_answer_with_llm` → map history to Gemini contents → `generate` → persist assistant message.
+
+`/chat` pins `mode=llm` so the later agent router cannot pick calculator, weather, search, or RAG. `source=preferred`. The interviewer sees a plain chatbot.
+
+## Error handling — AI-provider codes
 
 
-| HTTP | code                    | When                                              |
+| HTTP | code                    | When (AI-shaped)                                  |
 | ---- | ----------------------- | ------------------------------------------------- |
-| 401  | `UNAUTHORIZED`          | Missing or invalid `X-User-Id`                    |
-| 404  | `NOT_FOUND`             | Conversation not owned / missing                  |
-| 422  | `VALIDATION_ERROR`      | Blank message or Pydantic schema failure          |
-| 503  | `PROVIDER_UNAVAILABLE`  | Gemini down, empty reply, rate limit              |
+| 401  | `UNAUTHORIZED`          | Missing identity header                           |
+| 404  | `NOT_FOUND`             | Conversation not owned (404, not 403 — no leak)   |
+| 422  | `VALIDATION_ERROR`      | Blank / oversized prompt                          |
+| 503  | `PROVIDER_UNAVAILABLE`  | Gemini down, empty completion, rate limit         |
 | 503  | `PROVIDER_CONFIG_ERROR` | Missing key, rejected credentials, bad model name |
-| 504  | `PROVIDER_TIMEOUT`      | Deadline / timed out in SDK error text            |
-| 500  | `INTERNAL_ERROR`        | Unhandled — generic message, no traceback         |
+| 504  | `PROVIDER_TIMEOUT`      | Deadline (`LLM_TIMEOUT_MS = 30000`)               |
 
 
-UI: `ChatPanel` shows `role=alert` with `ApiError.message`. Optimistic user bubble is removed on failure. Network failure from the proxy is `502 NETWORK_ERROR`: unable to reach the AI service.
-
-**Known gap — own it if asked.** The user message is committed before Gemini runs. If `generate()` fails, that user row stays in the DB with no assistant reply. Tests cover the safe error body, not a transactional rollback.
-
-## UI behavior to demo live
-
-
-| State         | What the interviewer should see                                        |
-| ------------- | ---------------------------------------------------------------------- |
-| Empty         | “Ask a research question” + history-in-database copy                   |
-| Bootstrapping | “Preparing your workspace…” (creates project + conversation)           |
-| Sending       | Composer disabled; pulse + Generating response…                        |
-| Success       | User bubble right, assistant left; Markdown via `react-markdown` + GFM |
-| Error         | Danger alert; composer re-enabled; optimistic message gone             |
-| Reload        | Same conversation loads from GET messages (localStorage ids)           |
-
-
-
+We do **not** automatically retry `generate`. A retry would duplicate assistant messages in the conversation. Own the known gap: the user row is committed before Gemini runs; if generate fails, that turn stays without a reply.
 
 ## Drill these questions
 
 
 
-### Walk me through sending a message
+### What is an LLM, in one minute?
 
-User types in `ChatComposer`. Client validates non-blank, POSTs through the Next proxy with `X-User-Id`. FastAPI validates, stores the user message, pins route `llm`, loads last 40 turns, calls `GeminiLLMProvider`, stores the assistant message, returns both. UI replaces the optimistic bubble with the server records.
+A neural network trained to predict the next token. At inference we send a system instruction plus recent turns. The completion is sampled from a probability distribution over tokens — it is not a database query. Fluency is not evidence.
+
+### Walk me through sending a message (AI path)
+
+The client POSTs `{ content, mode: "llm" }`. FastAPI stores the user turn, loads the last 40 user/assistant messages, maps assistant → model, attaches `system_instruction`, and calls Gemini with a 30s timeout. The assistant text is persisted with `route=llm`. The UI never sees the API key or the raw SDK exception.
 
 ### Why not put the API key in Next.js?
 
-Anything in `NEXT_PUBLIC_*` or a client bundle is visible. Even a Next server action that only proxies Gemini would skip conversation ownership, history capping, and centralized error mapping. The AI service is the only process allowed to talk to providers.
+Anything in `NEXT_PUBLIC_*` or a client bundle is visible. Even a Next server action that only proxies Gemini would skip conversation ownership, history capping, and centralized provider-error mapping. The AI service is the only process allowed to talk to model providers.
 
-### How do you test without paying Google?
+### How do you test an LLM without paying Google?
 
-`conftest` injects `FakeLLMProvider` (and `APP_ENV=test`). `test_send_message_and_list_history` asserts 201, `route=llm`, two messages in GET history. `test_provider_failure_is_user_safe` swaps a BoomLLM that raises `ProviderUnavailableError` and asserts 503 with no Traceback. Unit test `history_to_gemini_contents` maps assistant → model.
+`FakeLLMProvider` implements the same Protocol. Integration tests assert status, route, and history shape. `history_to_gemini_contents` is a unit test: assistant → model, blanks skipped. We never call a paid, nondeterministic API in default CI.
 
-### How is conversation history maintained?
+### How is conversation history maintained for the *model*?
 
-Postgres messages, listed oldest-first. Frontend reloads them on bootstrap. For the model, `ChatService` slices `history[-40:]` and only includes user/assistant roles. Gemini contents use user/model. localStorage only stores which conversation id to reopen — not the text.
+Postgres holds the durable log. For generation, `ChatService` slices `history[-40:]` and only includes user/assistant roles. Gemini contents use user/model. localStorage only stores which conversation id to reopen.
 
-### What happens if Gemini is down?
+### What happens if Gemini is down or returns empty text?
 
-SDK exceptions are classified in `_map_provider_exception`. The API returns a problem-detail JSON. The UI shows the message in an alert and rolls back the optimistic user bubble. We do not retry `generate` automatically — that would duplicate assistant messages.
+SDK exceptions and empty completions are classified in `_map_provider_exception`. The API returns a problem-detail JSON. The UI shows a safe message and rolls back the optimistic bubble. Empty text is a provider failure, not a valid answer.
 
 ### Is this streaming?
 
-No. One JSON response after generation. Loading is a status bubble, not tokens. `AGENTS.md` allows SSE later; Task 1 did not require it. If asked “what would you add,” say: SSE with user-safe status then tokens, cancel on browser abort, persist only the final assembled assistant text.
+No. One JSON response after generation. Loading is a status bubble (“Generating response…”), not tokens. If asked what you would add: SSE with user-safe status then tokens, cancel on browser abort, persist only the final assembled assistant text. Never stream hidden reasoning.
+
+### Context window vs summarization — which did you ship?
+
+A sliding window of 40 messages. No map-reduce summary, no “memory” store. Tradeoff: cheap and predictable; the model forgets older turns even though they are still in the UI after a refresh of the full GET list.
 
 ### How does this relate to Task 2–5?
 
-Same `ChatService.send_message`. `/chat` keeps `mode=llm`. `/rag` pins `rag`. `/agent` and `/workspace` use `auto` so the router can pick calculator, weather, search, or RAG. Task 1 is the spine: UI, typed client, persistence, provider adapter, safe errors.
-
-### Why FastAPI instead of only Next.js?
-
-PDF indexing, embeddings, and tools are Python-heavy (PyMuPDF, pgvector). A typed FastAPI service with Pydantic schemas, pytest fakes, and a clean router → service → repository/provider split matches how we later added RAG without rewriting the chat UI.
+Same `generate` adapter. `/chat` keeps `mode=llm` (parametric only). `/rag` adds retrieved chunks as **non-parametric** context. `/agent` and `/workspace` let a router pick tools. Prompt Lab reuses `LLMProvider` with different system instructions. Task 1 is the spine: roles, history window, provider adapter, safe errors.
 
 ## If they ask “was this AI-generated?”
 
-Do not deny it. Own the architecture.
+Do not deny it. Own the **LLM contract**.
 
-I used AI to move faster on boilerplate, but I can defend every boundary: secrets stay server-side, the frontend never calls Gemini, tests use a fake provider, errors never leak stack traces, and Task 1 pins `llm` so later tools cannot hijack the demo. Then immediately walk the request path from `ChatComposer` to `GeminiLLMProvider`. That is what they are testing — comprehension, not typing speed.
+I used AI to move faster on boilerplate, but I can defend why the browser never calls Gemini, why assistant maps to model, why history is a 40-turn window not a dump of the table, why empty completions are failures, and why tests fake the provider. Then walk ChatComposer → `GeminiLLMProvider.generate`. That is what they are testing — comprehension of the model boundary.
 
 ### Phrases that sound like you built it
 
 
 | Say                                                                | Avoid                                                            |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| The browser only talks to `/api/v1`; FastAPI owns Gemini.          | The chatbot uses Gemini. (too vague)                             |
-| I pin `mode=llm` on `/chat` so the agent router cannot pick tools. | It automatically figures out what to do. (that is Task 3/5)      |
-| `FakeLLMProvider` keeps pytest deterministic and free.             | I tested it by chatting. (they want automated tests)             |
-| Owner-scoped `get_conversation` returns 404 for other users.       | We have authentication. (`X-User-Id` is a dev header, not OAuth) |
-| Prisma migrates; SQLAlchemy writes messages at runtime.            | Prisma is the backend. (wrong)                                   |
+| The model only sees a system instruction plus the last 40 turns.   | The chatbot uses Gemini. (too vague)                             |
+| Assistant role is mapped to Gemini `model`; system is not a turn.  | We send the whole chat as one string.                            |
+| `FakeLLMProvider` keeps pytest deterministic and free.             | I tested it by chatting.                                         |
+| Task 1 is parametric knowledge only; RAG is Task 2.                | It knows my documents. (not on `/chat`)                          |
+| We do not retry generate — that would duplicate assistant turns.   | If it fails we just call the API again.                          |
 
 
 
@@ -196,22 +175,21 @@ I used AI to move faster on boilerplate, but I can defend every boundary: secret
 ## Honest limitations (better than getting caught)
 
 
-| Limitation       | Accurate sentence                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| Auth             | Development identity via `X-User-Id`, not Clerk/OAuth yet.                                             |
-| Streaming        | Request/response chat; loading indicator only.                                                         |
-| History window   | Last 40 messages to the model; no conversation summarization.                                          |
-| Failed generate  | User row can remain without an assistant if Gemini fails after persist.                                |
-| Markdown         | `react-markdown` without `rehype-raw`; not a full HTML sanitizer pipeline.                             |
-| Schema leftovers | Prisma still has unused User/Post starter models; chat uses Project/Conversation/Message.              |
-| Frontend tests   | Composer trim is a small unit test; chat e2e is thin. Backend integration tests are the real coverage. |
+| Limitation       | Accurate AI sentence                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| Hallucination    | No retrieval. The model can invent facts that sound academic.                              |
+| History window   | Last 40 messages to the model; no conversation summarization or long-term memory.          |
+| Streaming        | Request/response generation; no token stream.                                              |
+| Failed generate  | User row can remain without an assistant if Gemini fails after persist.                    |
+| Auth             | Development identity via `X-User-Id`, not production OAuth.                                |
+| Model default    | `gemini-flash-lite-latest` — fast/cheap, not the strongest reasoning model.                |
 
 
 
 
 ## Live demo (about 90 seconds)
 
-Open `/chat`. Show empty state. Ask “Explain embeddings in one paragraph.” Point at the loading bubble. When the reply lands, mention Markdown and that the message is now in Postgres. Refresh — history returns. Optionally stop the AI service and send again to show the safe error. Do not upload a PDF or ask for weather on this page if you are presenting Task 1.
+Open `/chat`. Ask “Explain embeddings in one paragraph.” Point at the loading bubble. When the reply lands, say: this answer came from the model’s weights plus a short system prompt — no PDF was retrieved. Refresh — history returns from Postgres; the *next* generate will only send the last 40 turns. Optionally stop the AI service to show a safe provider error. Do not upload a PDF or ask for weather on this page if you are presenting Task 1.
 
 ## Re-read the night before
 
@@ -221,23 +199,21 @@ Open `/chat`. Show empty state. Ask “Explain embeddings in one paragraph.” P
 
 - `apps/web/app/chat/page.tsx` — `mode=llm`
 - `apps/web/features/chat/ChatPanel.tsx`
-- `apps/web/lib/api.ts`
 - `apps/ai-service/app/services/chat.py` — `_answer_with_llm`
-- `apps/ai-service/app/providers/llm.py`
+- `apps/ai-service/app/providers/llm.py` — role mapping, timeout, exception map
 - `apps/ai-service/app/core/errors.py`
 - `apps/ai-service/tests/integration/test_chat_api.py`
 
 
-
 ### Numbers to remember
 
-- Max message: 8,000 characters
+- Max prompt: 8,000 characters
 - History sent to Gemini: last 40 messages
 - LLM timeout: 30,000 ms
-- Send message HTTP: 201
 - Model default: `gemini-flash-lite-latest`
 - Status string: Generating response
+- Send message HTTP: 201
 
 ---
 
-Source: this repository’s Task 1 path as it exists after Tasks 2–5 were added. `/chat` still pins `llm`. `ChatService` also contains RAG and tools — skip those unless asked how the chatbot grew.
+Source: this repository’s Task 1 path after Tasks 2–5 were added. `/chat` still pins `llm`. Skip RAG and tools unless asked how the chatbot grew.

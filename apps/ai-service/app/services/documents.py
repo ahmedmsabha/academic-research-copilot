@@ -250,7 +250,12 @@ class DocumentService:
         document.failure_message = None
         self._store.update_document(document)
 
-        pdf_bytes = await self._storage.get_pdf(object_key=document.storage_key)
+        try:
+            pdf_bytes = await self._storage.get_pdf(object_key=document.storage_key)
+        except FileNotFoundError:
+            raise DocumentProcessingError(
+                "The uploaded PDF is missing from storage. Delete it and upload again."
+            ) from None
         try:
             extracted = await asyncio.to_thread(
                 extract_pdf_text,

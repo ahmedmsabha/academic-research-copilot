@@ -42,6 +42,8 @@ class LocalObjectStorage:
 
     async def get_pdf(self, *, object_key: str) -> bytes:
         path = self._path_for(object_key)
+        if not path.is_file():
+            raise FileNotFoundError(object_key)
         return path.read_bytes()
 
     async def delete_object(self, *, object_key: str) -> None:

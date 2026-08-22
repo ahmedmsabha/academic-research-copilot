@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.api.deps import (
     Store,
@@ -16,7 +17,7 @@ from app.api.deps import (
 from app.core.config import Settings, get_settings
 from app.core.security import require_user_id
 from app.models.schemas import DocumentResponse
-from app.repositories.memory_store import get_store
+from app.repositories.memory_store import DocumentRecord, get_store
 from app.repositories.postgres_store import PostgresStore
 from app.services.documents import DocumentService
 
@@ -30,6 +31,10 @@ _INTERRUPTED_STATUSES = {
     "embedding",
     "indexing",
 }
+_RECOVERY_INTERVAL_SECONDS = 15
+_INDEX_TASKS: set[asyncio.Task[None]] = set()
+_IN_FLIGHT: set[str] = set()
+_IN_FLIGHT_LOCK = asyncio.Lock()
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -58,7 +63,6 @@ def get_document(
 @router.post("", response_model=DocumentResponse, status_code=201)
 async def upload_document(
     project_id: str,
-    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File(...)],
     user_id: str = Depends(require_user_id),
     service: DocumentService = Depends(get_document_service),
@@ -80,8 +84,7 @@ async def upload_document(
             document_id=document.id,
         )
 
-    background_tasks.add_task(
-        _index_in_background,
+    schedule_document_index(
         owner_user_id=user_id,
         project_id=project_id,
         document_id=document.id,
@@ -94,7 +97,6 @@ async def upload_document(
 async def retry_document(
     project_id: str,
     document_id: str,
-    background_tasks: BackgroundTasks,
     user_id: str = Depends(require_user_id),
     service: DocumentService = Depends(get_document_service),
     settings: Settings = Depends(get_settings),
@@ -114,8 +116,7 @@ async def retry_document(
             document_id=document.id,
         )
 
-    background_tasks.add_task(
-        _index_in_background,
+    schedule_document_index(
         owner_user_id=user_id,
         project_id=project_id,
         document_id=document.id,
@@ -138,6 +139,29 @@ async def delete_document(
     )
 
 
+def schedule_document_index(
+    *,
+    owner_user_id: str,
+    project_id: str,
+    document_id: str,
+    settings: Settings,
+) -> None:
+    """Index off the request so a closed Next.js proxy connection cannot cancel the job."""
+    if settings.app_env == "test":
+        return
+    task = asyncio.create_task(
+        _index_in_background(
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+            document_id=document_id,
+            settings=settings,
+        ),
+        name=f"index-document-{document_id}",
+    )
+    _INDEX_TASKS.add(task)
+    task.add_done_callback(_INDEX_TASKS.discard)
+
+
 async def _index_in_background(
     *,
     owner_user_id: str,
@@ -146,68 +170,95 @@ async def _index_in_background(
     settings: Settings,
 ) -> None:
     """Create a fresh store/session for background indexing after the request ends."""
-    storage = _build_default_storage()
-    embeddings = _build_default_embeddings()
+    async with _IN_FLIGHT_LOCK:
+        if document_id in _IN_FLIGHT:
+            return
+        _IN_FLIGHT.add(document_id)
 
-    if settings.app_env == "test" or not settings.database_url:
-        store: Store = get_store()
-        service = DocumentService(store, storage, embeddings, settings)
-        try:
+    try:
+        storage = _build_default_storage()
+        embeddings = _build_default_embeddings()
+
+        if settings.app_env == "test" or not settings.database_url:
+            store: Store = get_store()
+            service = DocumentService(store, storage, embeddings, settings)
             await service.index_document(
                 owner_user_id=owner_user_id,
                 project_id=project_id,
                 document_id=document_id,
             )
-        except Exception:
             return
+
+        from app.db.session import get_session_factory
+
+        session = get_session_factory()()
+        try:
+            store = PostgresStore(session)
+            service = DocumentService(store, storage, embeddings, settings)
+            await service.index_document(
+                owner_user_id=owner_user_id,
+                project_id=project_id,
+                document_id=document_id,
+            )
+        finally:
+            session.close()
+    except Exception:
+        logger.exception(
+            "document_background_index_failed",
+            extra={"document_id": document_id, "project_id": project_id},
+        )
+    finally:
+        _IN_FLIGHT.discard(document_id)
+
+
+async def recover_interrupted_indexing(settings: Settings) -> None:
+    """Restart index jobs left mid-pipeline after a deploy, host sleep, or cancelled request."""
+    if settings.app_env == "test":
         return
+
+    try:
+        interrupted = _list_interrupted_documents(settings)
+    except Exception:
+        logger.exception("document_index_recovery_list_failed")
+        return
+
+    pending = [document for document in interrupted if document.id not in _IN_FLIGHT]
+    if not pending:
+        return
+
+    logger.info(
+        "recovering_interrupted_indexing",
+        extra={"count": len(pending)},
+    )
+    for document in pending:
+        schedule_document_index(
+            owner_user_id=document.owner_user_id,
+            project_id=document.project_id,
+            document_id=document.id,
+            settings=settings,
+        )
+
+
+async def run_indexing_recovery_loop(settings: Settings) -> None:
+    """Pick up queued/stuck documents while the process is alive — not only on startup."""
+    if settings.app_env == "test":
+        return
+    await recover_interrupted_indexing(settings)
+    while True:
+        await asyncio.sleep(_RECOVERY_INTERVAL_SECONDS)
+        await recover_interrupted_indexing(settings)
+
+
+def _list_interrupted_documents(settings: Settings) -> list[DocumentRecord]:
+    if not settings.database_url:
+        store: Store = get_store()
+        return store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
 
     from app.db.session import get_session_factory
 
     session = get_session_factory()()
     try:
         store = PostgresStore(session)
-        service = DocumentService(store, storage, embeddings, settings)
-        await service.index_document(
-            owner_user_id=owner_user_id,
-            project_id=project_id,
-            document_id=document_id,
-        )
-    except Exception:
-        return
+        return store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
     finally:
         session.close()
-
-
-async def recover_interrupted_indexing(settings: Settings) -> None:
-    """Restart index jobs left mid-pipeline after a deploy or host sleep."""
-    if settings.app_env == "test":
-        return
-
-    if not settings.database_url:
-        store: Store = get_store()
-        interrupted = store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
-    else:
-        from app.db.session import get_session_factory
-
-        session = get_session_factory()()
-        try:
-            store = PostgresStore(session)
-            interrupted = store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
-        finally:
-            session.close()
-
-    if not interrupted:
-        return
-
-    logger.info(
-        "recovering_interrupted_indexing",
-        extra={"count": len(interrupted)},
-    )
-    for document in interrupted:
-        await _index_in_background(
-            owner_user_id=document.owner_user_id,
-            project_id=document.project_id,
-            document_id=document.id,
-            settings=settings,
-        )

@@ -301,8 +301,8 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
                       ) : null}
                       {processing ? (
                         <p className="mt-2 text-xs text-ink-muted">
-                          Not searchable yet. If this stays on Embedding after a deploy,
-                          use Retry indexing.
+                          Not searchable yet. Indexing should leave Queued within a few
+                          seconds. If it stays on Queued or Embedding, use Retry indexing.
                         </p>
                       ) : null}
                       {document.page_count != null && document.page_count >= 80 ? (
