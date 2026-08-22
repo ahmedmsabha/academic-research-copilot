@@ -154,6 +154,16 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
     if (!projectId) {
       return;
     }
+    const current = documents.find((doc) => doc.id === documentId);
+    if (
+      current &&
+      PROCESSING_STATUSES.includes(current.status) &&
+      !window.confirm(
+        "This file is still marked as indexing. Retry anyway? Use this if Embedding looks stuck after a server deploy.",
+      )
+    ) {
+      return;
+    }
     setBusyId(documentId);
     setError(null);
     try {
@@ -209,7 +219,7 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
           Project documents
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
-          Upload PDFs to ground chat answers with filename and page citations.
+          Chat can search a file only after it is Ready for search. Uploading is not enough.
         </p>
       </header>
 
@@ -229,7 +239,7 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
         <p className="mt-2 text-xs text-ink-muted" aria-live="polite">
           {uploading
             ? "Uploading and queuing for indexing…"
-            : "PDF only. Indexing status updates automatically."}
+            : "PDF only. Prefer a short text paper or one chapter (under ~40 pages). Scans use on-server OCR and take longer."}
         </p>
       </div>
 
@@ -289,6 +299,18 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
                       {document.status === "failed" && document.failure_message ? (
                         <p className="mt-2 text-xs text-danger">{document.failure_message}</p>
                       ) : null}
+                      {processing ? (
+                        <p className="mt-2 text-xs text-ink-muted">
+                          Not searchable yet. If this stays on Embedding after a deploy,
+                          use Retry indexing.
+                        </p>
+                      ) : null}
+                      {document.page_count != null && document.page_count >= 80 ? (
+                        <p className="mt-2 text-xs text-ink-muted">
+                          This PDF is very long ({document.page_count} pages). A chapter or
+                          paper under ~40 pages indexes more reliably on the server.
+                        </p>
+                      ) : null}
                       {document.status !== "ready" && document.status !== "failed" ? (
                         <p className="sr-only" aria-live="polite">
                           {document.filename} is {statusLabel(document.status)}
@@ -296,14 +318,14 @@ export function DocumentPanel({ projectId }: DocumentPanelProps) {
                       ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col gap-2">
-                      {document.status === "failed" ? (
+                      {document.status === "failed" || processing ? (
                         <button
                           type="button"
                           className="rounded-lg border border-line px-2 py-1 text-xs text-ink disabled:opacity-50"
                           disabled={busy}
                           onClick={() => void handleRetry(document.id)}
                         >
-                          Retry
+                          Retry indexing
                         </button>
                       ) : null}
                       <button

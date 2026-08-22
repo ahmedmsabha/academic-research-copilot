@@ -52,6 +52,11 @@ class Settings(BaseSettings):
 
     chunk_size_chars: int = Field(default=800, alias="CHUNK_SIZE_CHARS")
     chunk_overlap_chars: int = Field(default=150, alias="CHUNK_OVERLAP_CHARS")
+    # Gemini free/dev quotas cannot embed a 400-page book in one BackgroundTask.
+    max_index_chunks: int = Field(default=400, alias="MAX_INDEX_CHUNKS")
+    enable_ocr: bool = Field(default=True, alias="ENABLE_OCR")
+    ocr_language: str = Field(default="eng", alias="OCR_LANGUAGE")
+    ocr_dpi: int = Field(default=150, alias="OCR_DPI")
     retrieval_top_k: int = Field(default=5, alias="RETRIEVAL_TOP_K")
     # Cosine distance upper bound (1 - similarity). Lower is more similar / stricter.
     retrieval_max_distance: float = Field(default=0.55, alias="RETRIEVAL_MAX_DISTANCE")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -24,7 +25,12 @@ from app.models.schemas import DocumentResponse
 from app.providers.embeddings import EmbeddingProvider
 from app.providers.storage import ObjectStorage
 from app.rag.chunking import chunk_extracted_document
-from app.rag.extract import extract_pdf_text, is_near_empty, looks_like_pdf
+from app.rag.extract import (
+    PdfOcrUnavailableError,
+    extract_pdf_text,
+    is_near_empty,
+    looks_like_pdf,
+)
 from app.repositories.memory_store import ChunkRecord, DocumentRecord, MemoryStore, utc_now
 from app.repositories.postgres_store import PostgresStore
 
@@ -174,9 +180,8 @@ class DocumentService:
             raise NotFoundError("Document not found.")
         if document.status == "ready":
             return _to_response(document)
-        if document.status in {"extracting", "chunking", "embedding", "indexing"}:
-            # Already mid-pipeline; avoid launching a second concurrent indexer.
-            return _to_response(document)
+        # Allow retry of mid-pipeline statuses. After a deploy or host sleep the
+        # FastAPI BackgroundTask is gone, but the row can stay on embedding forever.
 
         document.status = "queued"
         document.failure_code = None
@@ -246,12 +251,27 @@ class DocumentService:
         self._store.update_document(document)
 
         pdf_bytes = await self._storage.get_pdf(object_key=document.storage_key)
-        extracted = extract_pdf_text(pdf_bytes)
+        try:
+            extracted = await asyncio.to_thread(
+                extract_pdf_text,
+                pdf_bytes,
+                ocr=self._settings.enable_ocr,
+                ocr_language=self._settings.ocr_language,
+                ocr_dpi=self._settings.ocr_dpi,
+            )
+        except PdfOcrUnavailableError:
+            raise DocumentProcessingError(
+                "This PDF looks like a scan (no text layer). OCR needs Tesseract "
+                "on the server. Upload a text-based PDF — for example a Word/Google "
+                "Docs export or an arXiv paper — or redeploy with Tesseract and "
+                "click Retry indexing."
+            ) from None
         document.page_count = extracted.page_count
         if is_near_empty(extracted):
             raise DocumentProcessingError(
                 "No extractable text was found in this PDF. "
-                "Scanned image-only PDFs are not supported yet."
+                "If this is a photo or scan, try a clearer copy, or upload a PDF "
+                "that already contains a text layer."
             )
 
         document.status = "chunking"
@@ -263,6 +283,13 @@ class DocumentService:
         )
         if not text_chunks:
             raise DocumentProcessingError("Unable to create text chunks from this PDF.")
+        max_chunks = self._settings.max_index_chunks
+        if len(text_chunks) > max_chunks:
+            raise DocumentProcessingError(
+                f"This PDF is too long to index ({len(text_chunks)} text chunks, "
+                f"limit {max_chunks}). Upload a shorter paper or a single chapter "
+                "(about 40 pages or fewer), then ask again."
+            )
 
         document.status = "embedding"
         self._store.update_document(document)

@@ -28,12 +28,12 @@ The first user message retitles a default conversation (`New chat`, `Research ch
 
 `POST /api/v1/projects/{project_id}/documents`  
 Multipart form field: `file` (PDF only).  
-Returns the document promptly (`queued` in normal runs). Indexing continues in the background until `ready` or `failed`.
+Returns the document promptly (`queued` in normal runs). Indexing continues in the background until `ready` or `failed`. Native PyMuPDF text is used first. If the PDF has no text layer, Tesseract OCR runs when `ENABLE_OCR=true` and `tesseract` is installed (the AI service Docker image includes English Tesseract).
 
 `GET /api/v1/projects/{project_id}/documents/{document_id}`
 
 `POST /api/v1/projects/{project_id}/documents/{document_id}/retry`  
-Re-runs indexing from a safe state (idempotent for already-`ready` documents).
+Re-runs indexing from a safe state (idempotent for already-`ready` documents). Also restarts jobs left on `extracting` / `chunking` / `embedding` / `indexing` after a process restart. PDFs that produce more than `MAX_INDEX_CHUNKS` (default 400) fail with a user-safe message — upload a shorter paper or a single chapter.
 
 `DELETE /api/v1/projects/{project_id}/documents/{document_id}` → `204`  
 Removes DB rows/chunks and deletes the stored PDF object.

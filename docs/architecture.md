@@ -50,7 +50,7 @@ Docker Compose runs `web`, `ai-service`, and `postgres` (pgvector image), with a
 
 ## Upload / RAG
 
-1. Upload PDF → validate → store object → index (`queued → … → ready`).
+1. Upload PDF → validate → store object → index (`queued → … → ready`). Native PyMuPDF text first; Tesseract OCR if the page text layer is empty.
 2. Grounded answers retrieve project-scoped chunks and attach citations from retrieval metadata.
 3. Insufficient evidence is returned honestly when scores are weak.
 

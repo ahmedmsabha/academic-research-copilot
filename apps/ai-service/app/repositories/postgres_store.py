@@ -195,6 +195,14 @@ class PostgresStore:
         ).all()
         return [_document(row) for row in rows]
 
+    def list_documents_by_statuses(self, *, statuses: set[str]) -> list[DocumentRecord]:
+        if not statuses:
+            return []
+        rows = self._session.scalars(
+            select(DocumentRow).where(DocumentRow.status.in_(statuses))
+        ).all()
+        return [_document(row) for row in rows]
+
     def get_document(
         self,
         *,

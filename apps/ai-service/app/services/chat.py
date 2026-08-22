@@ -72,6 +72,14 @@ WEB_SEARCH_SYSTEM_INSTRUCTION = (
 )
 
 _VALID_MODES: set[str] = {"auto", "llm", "rag", "calculator", "web_search", "weather"}
+_PROCESSING_DOCUMENT_STATUSES: set[str] = {
+    "uploaded",
+    "queued",
+    "extracting",
+    "chunking",
+    "embedding",
+    "indexing",
+}
 
 
 class ChatService:
@@ -167,9 +175,11 @@ class ChatService:
                 id=str(uuid4()),
                 conversation_id=conversation_id,
                 role="assistant",
-                content=(
-                    "No ready documents are available in this project yet. "
-                    "Upload a PDF and wait until indexing finishes, then ask again."
+                content=_rag_not_ready_reply(
+                    self._store.list_documents(
+                        project_id=conversation.project_id,
+                        owner_user_id=owner_user_id,
+                    )
                 ),
                 created_at=utc_now(),
                 route="rag",
@@ -580,6 +590,25 @@ class ChatService:
             citations=[],
             web_sources=[],
         )
+
+
+def _rag_not_ready_reply(documents: list[object]) -> str:
+    statuses = {getattr(document, "status", None) for document in documents}
+    if statuses & _PROCESSING_DOCUMENT_STATUSES:
+        return (
+            "Your PDF is still being indexed. Wait until the document status is "
+            "Ready for search, then ask again. After a server deploy, indexing can "
+            "stall on Embedding — use Retry indexing, or upload a shorter paper."
+        )
+    if "failed" in statuses:
+        return (
+            "Document indexing failed. Use Retry indexing in the documents panel, "
+            "or upload a shorter PDF, then ask again."
+        )
+    return (
+        "No ready documents are available in this project yet. "
+        "Upload a PDF and wait until indexing finishes, then ask again."
+    )
 
 
 def _merge_chunks(

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.providers.llm import FakeLLMProvider
+from app.repositories.memory_store import get_store
 from tests.fixtures.pdfs import make_text_pdf
 
 
@@ -205,3 +207,100 @@ def test_delete_removes_from_retrieval(
     assert send.status_code == 201
     # No ready documents remain, so chat falls back to direct LLM route.
     assert send.json()["route"] == "llm"
+
+
+def test_rag_chat_explains_indexing_in_progress(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id, conversation_id = _bootstrap_project(client, auth_headers)
+    pdf = make_text_pdf("Temporary notes used only to create a document row.")
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={"file": ("book.pdf", pdf, "application/pdf")},
+    )
+    assert upload.status_code == 201
+    document_id = upload.json()["id"]
+
+    store = get_store()
+    document = store.get_document(
+        project_id=project_id,
+        document_id=document_id,
+        owner_user_id="test-user-1",
+    )
+    assert document is not None
+    document.status = "embedding"
+    document.page_count = 407
+    store.update_document(document)
+
+    send = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        json={"content": "Chapter 1 Summary", "mode": "rag"},
+        headers=auth_headers,
+    )
+    assert send.status_code == 201
+    payload = send.json()
+    assert payload["route"] == "rag"
+    assert payload["citations"] == []
+    content = payload["assistant_message"]["content"].lower()
+    assert "still being indexed" in content
+    assert "ready for search" in content
+
+
+def test_retry_restarts_stuck_embedding(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id, _ = _bootstrap_project(client, auth_headers)
+    pdf = make_text_pdf("Graphene is a single layer of carbon atoms.")
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={"file": ("notes.pdf", pdf, "application/pdf")},
+    )
+    assert upload.status_code == 201
+    document_id = upload.json()["id"]
+
+    store = get_store()
+    document = store.get_document(
+        project_id=project_id,
+        document_id=document_id,
+        owner_user_id="test-user-1",
+    )
+    assert document is not None
+    document.status = "embedding"
+    store.update_document(document)
+
+    retry = client.post(
+        f"/api/v1/projects/{project_id}/documents/{document_id}/retry",
+        headers=auth_headers,
+    )
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "ready"
+
+
+def test_oversize_pdf_fails_chunk_limit(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    settings = get_settings()
+    object.__setattr__(settings, "chunk_size_chars", 40)
+    object.__setattr__(settings, "chunk_overlap_chars", 0)
+    object.__setattr__(settings, "max_index_chunks", 1)
+    project_id, _ = _bootstrap_project(client, auth_headers)
+    pdf = make_text_pdf(
+        "Semantic search maps academic passages into vectors for later retrieval."
+    )
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/documents",
+        headers=auth_headers,
+        files={"file": ("book.pdf", pdf, "application/pdf")},
+    )
+    assert upload.status_code == 422
+    assert upload.json()["error"]["code"] == "DOCUMENT_PROCESSING_ERROR"
+    assert "too long to index" in upload.json()["error"]["message"].lower()
+
+    listed = client.get(f"/api/v1/projects/{project_id}/documents", headers=auth_headers)
+    assert listed.status_code == 200
+    assert listed.json()[0]["status"] == "failed"

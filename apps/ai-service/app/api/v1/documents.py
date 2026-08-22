@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
@@ -20,6 +21,15 @@ from app.repositories.postgres_store import PostgresStore
 from app.services.documents import DocumentService
 
 router = APIRouter(prefix="/projects/{project_id}/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
+
+_INTERRUPTED_STATUSES = {
+    "queued",
+    "extracting",
+    "chunking",
+    "embedding",
+    "indexing",
+}
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -94,12 +104,7 @@ async def retry_document(
         project_id=project_id,
         document_id=document_id,
     )
-    if document.status == "ready" or document.status in {
-        "extracting",
-        "chunking",
-        "embedding",
-        "indexing",
-    }:
+    if document.status == "ready":
         return document
 
     if settings.app_env == "test":
@@ -172,3 +177,37 @@ async def _index_in_background(
         return
     finally:
         session.close()
+
+
+async def recover_interrupted_indexing(settings: Settings) -> None:
+    """Restart index jobs left mid-pipeline after a deploy or host sleep."""
+    if settings.app_env == "test":
+        return
+
+    if not settings.database_url:
+        store: Store = get_store()
+        interrupted = store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
+    else:
+        from app.db.session import get_session_factory
+
+        session = get_session_factory()()
+        try:
+            store = PostgresStore(session)
+            interrupted = store.list_documents_by_statuses(statuses=_INTERRUPTED_STATUSES)
+        finally:
+            session.close()
+
+    if not interrupted:
+        return
+
+    logger.info(
+        "recovering_interrupted_indexing",
+        extra={"count": len(interrupted)},
+    )
+    for document in interrupted:
+        await _index_in_background(
+            owner_user_id=document.owner_user_id,
+            project_id=document.project_id,
+            document_id=document.id,
+            settings=settings,
+        )

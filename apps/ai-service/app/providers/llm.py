@@ -79,7 +79,7 @@ class GeminiLLMProvider:
             raise ProviderConfigError("GEMINI_API_KEY (or LLM_API_KEY) is not set.")
         if self._client is None:
             from google import genai
-            from google.genai import types
+            from google.genai import types  # pyright: ignore[reportMissingImports]
 
             self._client = genai.Client(
                 api_key=self._api_key,
@@ -88,7 +88,7 @@ class GeminiLLMProvider:
         return self._client
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        from google.genai import types
+        from google.genai import types  # pyright: ignore[reportMissingImports]
 
         if not self._api_key:
             raise ProviderConfigError("GEMINI_API_KEY (or LLM_API_KEY) is not set.")

@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.documents import recover_interrupted_indexing
 from app.api.v1.router import api_router
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.errors import register_exception_handlers
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings: Settings = app.state.settings
+    recovery = asyncio.create_task(recover_interrupted_indexing(settings))
+    try:
+        yield
+    finally:
+        recovery.cancel()
+        try:
+            await recovery
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:
@@ -18,7 +37,9 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/docs" if settings.app_env != "production" else None,
         redoc_url=None,
+        lifespan=_lifespan,
     )
+    app.state.settings = settings
 
     app.add_middleware(
         CORSMiddleware,

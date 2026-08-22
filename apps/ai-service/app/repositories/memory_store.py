@@ -228,6 +228,10 @@ class MemoryStore:
             ]
             return sorted(items, key=lambda d: d.created_at, reverse=True)
 
+    def list_documents_by_statuses(self, *, statuses: set[str]) -> list[DocumentRecord]:
+        with self._lock:
+            return [doc for doc in self.documents.values() if doc.status in statuses]
+
     def get_document(
         self,
         *,
